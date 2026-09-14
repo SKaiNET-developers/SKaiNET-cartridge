@@ -1,0 +1,71 @@
+name: Docs
+
+# Builds the Antora site on every push/PR that touches docs, and publishes it to
+# GitHub Pages on push to main. Uses the SKaiNET-branded UI bundle from
+# https://github.com/SKaiNET-developers/skainet-docs-ui (pinned in the playbook).
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'cartridge-abi/**'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'cartridge-abi/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+# Default to no permissions; each job grants only what it needs.
+permissions: {}
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '20'
+
+      - name: Build Antora site
+        run: npx --yes antora@3.1 --stacktrace docs/antora-playbook.yml
+
+      - name: Publish JSON schemas at their $id URLs
+        run: |
+          mkdir -p docs/build/site/schema
+          cp docs/modules/ROOT/examples/*.schema.json docs/build/site/schema/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs/build/site
+
+  deploy-docs:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build-docs
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

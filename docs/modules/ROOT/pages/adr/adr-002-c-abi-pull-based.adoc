@@ -1,0 +1,19 @@
+= ADR-002 — A C ABI, pull-based, is the runtime contract
+
+*Status:* accepted (2026-08-25, spec v0.2). Resolves OQ0. +
+*Context:* v0.1 specified packaging, metadata, and trust obligations but no call-level
+contract — the two working cartridges had entirely different APIs (a C batch API vs. a Kotlin
+streaming class), so "replaceable as a unit" in practice meant "rewrite the adapter".
+Conformance (OQ5) had nothing to invoke. The user also requires consumption from any tech
+stack (C, Rust, Python, Go, JVM, Kotlin/Native). +
+*Decision:* One `extern "C"` ABI (`cartridge_abi.h`, abi.adoc) every cartridge exports:
+versioned, struct-size negotiated, pull-based streaming (no callbacks — callbacks force a
+threading contract onto every consumer language), explicit buffer ownership, per-handle errors,
+`ctg_preflight` for fleet-only requirements. Language facades (JNI, generated typed Kotlin,
+CLI) wrap it; they never replace it. +
+*Alternatives rejected:* a Kotlin-first interface (locks out non-JVM stacks, unverifiable from
+C tooling); callback-based streaming (threading contract leaks into every binding); gRPC/IPC
+(wrong cost model for on-device, single-process inference). +
+*Consequences:* conformance testing becomes possible (dlopen + invoke); Rust/C/Python consumers
+are first-class; existing cartridges need thin wrappers (roadmap Phase 3); binary-plane swap
+becomes real (same ABI + same io = package swap).

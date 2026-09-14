@@ -1,0 +1,31 @@
+= ADR-011 — `llm/v1`: a generation task profile over the unchanged pull ABI
+
+*Status:* proposed (2026-08-30). Builds on ADR-005 (profiles public, two-layer) and ADR-007
+(output_schema + LLM attributes); its first consumer advances ADR-007 toward acceptance. +
+*Context:* `asr/v1` is the only task profile in existence. The first LLM cartridge family
+(`functiongemma-270m`, `task: generation`) needs a public consumer contract: token streaming,
+tool calls, a finished-turn signal — none of which `asr/v1`'s event vocabulary can carry.
+ADR-007 already established that the C ABI needs no change for LLMs (push the rendered prompt
+once, pull `PARTIAL` results as incremental text, `FINAL` as the completed turn; an LLM
+cartridge never emits `CTG_RESULT_ENDPOINT`) but deliberately stopped short of the Kotlin
+surface. +
+*Decision:* Define `llm/v1` mirroring `asr/v1`'s two-layer shape (Flow core + provided
+callback bridge, `explicitApi`, KMP): `LlmEngine : AutoCloseable { val info: LlmEngineInfo;
+fun session(config: LlmSessionConfig): LlmSession }`; `LlmSession : AutoCloseable { suspend
+fun prompt(rendered: String); fun cancel(); val events: Flow<LlmEvent> }`. `LlmEvent` is
+sealed: `Ready`, `Delta(text)`, `ToolCall(json)` (payload validated against the port's
+ADR-007 `output_schema` when declared), `Final(text, finishReason)`, `Failed(LlmError)`.
+Ordering contract: `Ready → (Delta | ToolCall)* → (Final | Failed)`. ABI mapping: `Delta` =
+`PARTIAL` payload; `ToolCall` = `PARTIAL` payload whose port schema marks it structured;
+`Final` = `FINAL`. Prompt *rendering* (chat template, tool declarations) happens inside the
+cartridge — the profile passes messages/tools as data, keeping the template with the
+checkpoint it was trained for (boundary test: a host that concatenates `<start_of_turn>`
+strings is in the wrong layer). LLM metadata rides the open `attributes` block exactly as
+ADR-007 lists (`context_window_tokens`, `supports_tool_calling`, `supports_json_mode`, …);
+sampling defaults (`temperature`, `top_k`, `top_p`) are added there as RECOMMENDED
+attributes — a cartridge ships its model card's recommendation, a host may override per
+session via `LlmSessionConfig`. +
+*Consequences:* `gen-functiongemma-270m-*` siblings become the first profile-plane LLM swap
+(eager ↔ IREE behind one typed surface); ADR-007's `output_schema` gains its consumer;
+`asr/v1` conventions (error codes, callback bridge, jvm-first targets) are reused not
+re-invented; the ABI stays frozen at 0.1.

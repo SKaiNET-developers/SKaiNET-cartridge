@@ -1,0 +1,10 @@
+name: skainet-cartridge
+title: SKaiNET Cartridge
+version: ~
+nav:
+  - modules/ROOT/nav.adoc
+
+asciidoc:
+  attributes:
+    spec_version: "0.3"
+    abi_version: "0.1"

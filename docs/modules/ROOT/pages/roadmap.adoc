@@ -1,0 +1,78 @@
+= Roadmap
+:navtitle: Roadmap
+
+[.lead]
+The committed sequence from spec v0.2 to a fully machine-checked ecosystem. Phases 0–1 are
+this repo's current state; 2–4 are committed next steps; 5 is parked with explicit triggers.
+
+== Phase 0+1 — Spec v0.2 + contracts *(done — this repo)*
+
+Contract repairs (native-speed/eager, endpointing ruling, `family` replaces `fallback_of`),
+two-plane replaceability, threat model, weight-update gate fix, license composition rule,
+maturity tags, ADR log; Runtime ABI v0.1 (`cartridge-abi/include/cartridge_abi.h`), descriptor
++ manifest schemas v0.2 with re-signed worked examples, task profile `asr/v1` drafted as the
+`cartridge-task-profiles` KMP module.
+
+== Phase 2 — Tooling
+
+* *`cartridge-gradle-plugin`* — the staging step: per target resolve → verify manifest → stage
+  artifacts → generate typed bindings from the descriptor
+  (xref:task-profiles.adoc#typed[typed facade]). Precedents to copy from
+  https://github.com/SKaiNET-developers/SKaiNET[SKaiNET]'s build logic: its cacheable
+  JSON→generated-output tasks (CI-diffed), its schema-validation task, and the opt-in property
+  gating of the Minerva host-verification task.
+* *`ctg-conform`* (OQ5) — schema-validate descriptor; verify digests + signatures
+  (productizing `verify_manifest.py`); `dlopen` + `ctg_abi_version` check; smoke inference
+  against test vectors bundled in the package; machine-readable report.
+* *License gate* — effective license must satisfy every per-artifact upstream license (SPDX
+  expressions + entitlement-restricted markers); generates the NOTICE file including display
+  duties (e.g. "Powered by Moonshine AI"); *fails on undeclared licenses* — the current
+  Whisper-on-NPU cartridge state fails this gate by design.
+
+== Phase 3 — Retrofit the two real cartridges
+
+* *Whisper-on-NPU cartridge (`asr-whisper-tiny-npu`)*: thin ABI wrapper over the existing C API, plus what a wrapper can't
+  hide — `-fvisibility=hidden` + version script + `SOVERSION` (2,144 exported symbols → the
+  intended ~15), compile-time API version macro / struct-size field, normalized error model
+  (no `0`-with-`stop_reason=3`), the `whisper_set_mel_filter_path` process-global documented or
+  fixed. *Licensing remediation*: LICENSE + NOTICE, per-artifact licenses in the manifest
+  (Whisper weights → MIT attribution; FLEURS calibration → CC-BY; vendored NPU sample code →
+  Apache-2.0 with modification notices), patched-driver requirement moved into
+  `requirements.driver` + `ctg_preflight`. Descriptor v0.2 with measured WER.
+* *ORT Moonshine cartridge (`asr-moonshine-ort-cpu`)*: ABI wrapper over `moonshine-c-api.h`; descriptor v0.2
+  (`execution_mode: eager`, `family`, `endpointing: signal`, honest per-ABI RTF); LICENSE +
+  NOTICE (MIT English models; the non-English Community-License constraint documented as the
+  OQ10 worked case); Silero-blob artifact granularity decided (extract to file vs. accept
+  whole-binary granularity, per the granularity rule in xref:index.adoc#integrity[]).
+* *Adapters onto `asr/v1`*: both of the first app's ASR adapters implement the profile; the
+  duplicated session/channel/PCM plumbing (~250–300 LOC each) hoists into a shared support
+  library; adapters shrink toward their genuine ~120 LOC of app logic (NLU, command assembly,
+  context). The app's command parity tests must stay green.
+
+== Phase 4 — Prove the claims
+
+1. *WER harness first* (zero ABI work — shells out to the existing CLI): supplies the
+   `quality.wer` numbers Phase 3 descriptors require.
+2. *Consumer #2 = a Kotlin/Native CLI*: an `--engine npu` runner via cinterop against
+   `cartridge_abi.h` (linuxArm64 target already declared; device-only engine, stated
+   honestly). The first app stops being the only real consumer.
+3. *Binary-plane swap demo*: two same-io Whisper-on-NPU variants (en vs. de model set)
+   swapped without recompiling the consumer.
+4. *Profile-plane swap demo*: Whisper-on-NPU ↔ a Moonshine engine behind `asr/v1`; the
+   capability delta (languages, streaming, endpointing) surfaced from the descriptor diff.
+5. *Weight-update end-to-end*: one signed `weights-update` passing the v0.2 regression gate,
+   applied and verified.
+
+== Phase 5 — Parked, with build-when triggers
+
+[cols="2,4",options="header"]
+|===
+| Item | Build when
+
+| Cartridge hub (Mode A) | there is an external or multi-tenant audience — not before (OQ4)
+| Revocation (OQ8) | shape-B dynamic delivery ships, or the first commercial cartridge does
+| Dynamic on-device delivery (threat-model shape B) | the first weight-update pipeline is real
+| Fleet telemetry (correcting measured `performance`/`quality` from the field) | ≥ 2 products consume the same cartridge
+| A/B weight rollout | the first OTA weight update ships
+| NPU tenancy arbitration | two accelerator cartridges must coexist on one device
+|===

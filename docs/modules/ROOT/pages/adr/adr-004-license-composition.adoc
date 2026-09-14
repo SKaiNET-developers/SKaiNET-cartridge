@@ -1,0 +1,19 @@
+= ADR-004 — The effective license must fulfill every upstream license
+
+*Status:* accepted (2026-08-25, spec v0.2). Extends OQ10. +
+*Context:* A cartridge is a derived work of everything it bundles: weights derived from
+published checkpoints, calibration data, vendored runtime code, tokenizers. Reality check
+found the first Whisper-on-NPU cartridge with *no license file at all* — unlicensed first-party code,
+unattributed Whisper-derived (MIT) weights, vendor Apache-2.0 NPU sample code modified without required
+modification notices — while being publicly described as "Apache-2.0". Moonshine adds a
+sharper case: English models MIT, non-English models revenue-capped (Community License,
+$1M/yr) with a display duty — a *product-blocking* constraint invisible in a single top-level
+license string. +
+*Decision:* The manifest records `license` and `derived_from` *per artifact*; the descriptor's
+`license` is the *effective* license and MUST be satisfiable given all upstream obligations.
+`NOASSERTION` marks unremediated packages and is treated as a failure by conformance tooling.
+A build-time license gate (SPDX expression check + NOTICE generation, including display
+duties) is Phase-2 tooling. +
+*Consequences:* license state becomes machine-checkable and honest; that cartridge's state
+fails the gate by design until remediated (roadmap Phase 3); entitlement-restricted licenses
+(Moonshine non-English) are representable, which OQ10's field formalization must preserve.

@@ -1,0 +1,38 @@
+= ADR-007 — Structured output and LLM model metadata in the descriptor
+
+*Status:* accepted (2026-08-30, spec v0.2 candidate; merged PR #2). Prepares groundwork for
+OQ12's still-open non-ASR task profiles. +
+*Context:* An LLM/intent cartridge (e.g. a future command-resolution cartridge over Qwen2.5
+or Gemma) needs to describe two things the v0.2 descriptor has no room for: a *structured*
+output contract (a tool call is a name plus typed arguments, not free text or raw model
+tensors), and LLM-specific model metadata (vocab size, context window in tokens) that
+doesn't fit the `model` block's fixed fields (`name`/`variant`/`params`/`checkpoint`/
+`upstream`). Both `$defs.ioPort` and `properties.model` are `additionalProperties: false`,
+so neither can carry new fields without a schema change; `attributes` is already open
+(`additionalProperties: true`) and already carries this kind of task-specific detail for
+ASR (`languages`, `endpointing`), but nothing in the schema today lets a port describe the
+*shape* of a structured result. The C Runtime ABI needs no change for any of this:
+`ctg_buffer` is already raw bytes with encoding deferred entirely to the descriptor, and the
+streaming `push`/`pull`/`flush` + `PARTIAL`/`FINAL` result-kind pattern already maps cleanly
+onto incremental token generation (push the prompt once, pull partial/final generated
+output) — the one ASR-specific enum value, `CTG_RESULT_ENDPOINT`, is additive and an LLM
+cartridge simply never emits it. +
+*Decision:* Add one new optional field to `ioPort`: `output_schema` — a JSON-Schema
+fragment (inline, or a digest/pointer to one) describing the shape of a structured output
+port, used when a cartridge's output is a parsed, typed result rather than raw tensors or
+free text. Leave `model` closed; carry LLM-specific metadata (`vocab_size`,
+`context_window_tokens`, `max_output_tokens`, `supports_tool_calling`,
+`supports_json_mode`) in the already-open `attributes` block instead of widening `model` —
+consistent with how ASR attributes already work, and avoiding a second schema surface for
+the same kind of information. `context_window_tokens` is a deliberately distinct name from
+the existing ASR `context_window_s` (seconds of audio context, not a token count) — the two
+must never be conflated. No change to the C Runtime ABI. +
+*Consequences:* a future `llm`/`nlu` task profile can describe its cartridges' output
+contract machine-readably without inventing a side channel; every existing ASR descriptor
+is unaffected (`output_schema` is optional, the `attributes` conventions are additive only).
+This is spec groundwork with zero consumers today — no cartridge is required to adopt
+`output_schema` or the `attributes` conventions until a real LLM/intent cartridge exists to
+validate the shape against. Revisit this ADR's `output_schema` field once a first such
+cartridge actually implements against it; the two live LLM cartridge prototypes it's informed by
+(a Gemma-on-llama.cpp and a Qwen-on-NPU prototype) are both still pre-cartridge prototypes,
+not yet real consumers.

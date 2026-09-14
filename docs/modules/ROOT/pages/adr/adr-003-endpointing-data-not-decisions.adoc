@@ -1,0 +1,16 @@
+= ADR-003 — Endpointing: data, not decisions
+
+*Status:* accepted (2026-08-25, spec v0.2). +
+*Context:* v0.1 forbade "endpointing decisions" in a cartridge, yet the ORT Moonshine cartridge
+runs Silero VAD and utterance segmentation entirely inside its C++ core (its `LineCompleted`
+event *is* the VAD endpoint), while the shipped SKaiNET/IREE Moonshine v2 engine has no VAD at
+all and relies on the host's stop signal. The contract contradicted one working engine and the
+boundary test couldn't decide streaming-ASR cases. +
+*Decision:* A cartridge MAY embed signal-level VAD/segmentation when intrinsic to its model's
+streaming operation, and MUST expose it *as data* (segment boundaries, endpoint events —
+`CTG_RESULT_ENDPOINT` in the ABI), never *as decisions* ("the session is over" stays adapter
+policy). The descriptor declares the machinery: `attributes.endpointing: none | signal |
+semantic`. +
+*Consequences:* both existing engines are contract-compliant as-is (`signal` and `none`
+respectively) and honestly distinguishable; hosts can require an endpointing level as a hard
+constraint; the boundary test gains a concrete rider for streaming audio.

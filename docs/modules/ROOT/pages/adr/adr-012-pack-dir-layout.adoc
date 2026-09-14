@@ -1,0 +1,26 @@
+= ADR-012 — Minimal on-disk `pack_dir` layout (resolves OQ2's common core)
+
+*Status:* proposed (2026-08-30). +
+*Context:* `ctg_open(pack_dir, …)` takes a directory, but nothing defines what is inside one —
+OQ2 leaves packaging "likely per-platform (AAR, `.so`+assets, KMP artifact), with a common
+descriptor+manifest". Every consumption mode (hub, source build, internal distribution)
+already "resolves to the identical on-disk shape: descriptor + artifacts + manifest", yet no
+packager, verifier, or staging plugin can be written against a shape that is never pinned.
+The first packager (`packageCartridge` for the `functiongemma-270m` family) needs the answer
+now. +
+*Decision:* Pin only the *common core* a `pack_dir` MUST have, leaving per-platform carriers
+(AAR, zip, OCI layer) as transport around it: `descriptor.json` (the capability descriptor,
+byte-identical to the copy whose digest the manifest's `descriptor` artifact entry pins),
+`manifest.json` (the signed manifest; the one file never listed in its own `artifacts`), and
+`artifacts/` — every manifest artifact's `path` resolves relative to `pack_dir` root, and by
+convention producers place payloads under `artifacts/` grouped by role
+(`artifacts/runtime/libwhisper-ctg.so`, `artifacts/weights/model.gguf`,
+`artifacts/model/module.vmfb`, `artifacts/tokenizer/tokenizer.json`). The runtime library the
+host `dlopen`s is the artifact with `role: runtime` — the descriptor does not repeat its
+path. Nothing else at root; a producer MAY add dot-prefixed files (`.provenance/`,
+`.cache/`), which verifiers MUST ignore and MUST NOT sign. A carrier format (AAR, zip) is
+compliant iff extracting it yields exactly this shape. +
+*Consequences:* `ctg-conform` and the Phase-2 staging plugin get a target shape to verify and
+stage; digests keep working unchanged (they were always path-relative); per-platform packaging
+debate (OQ2) narrows to "which carrier", no longer "which layout"; the Forge's older
+`specVersion: 0.1` manifest lineage is explicitly out of scope of this ADR.

@@ -1,0 +1,57 @@
+{
+  "spec_version": "0.3",
+  "id": "asr-moonshine-ort-cpu",
+  "version": "1.0.0",
+  "family": "moonshine-tiny-streaming",
+  "execution_mode": "eager",
+  "license": "MIT",
+  "model": {
+    "name": "moonshine-tiny-streaming",
+    "variant": "ort-tiny-streaming-en",
+    "checkpoint": "usefulsensors/moonshine-tiny-streaming",
+    "upstream": {
+      "source": "https://github.com/moonshine-ai/moonshine",
+      "license": "MIT (English models; non-English models are Moonshine AI Community License — revenue-capped, enterprise license required above USD $1M/yr — see ADR-004)"
+    }
+  },
+  "modality": "audio",
+  "task": "asr",
+  "io": {
+    "mode": "streaming",
+    "input": {
+      "dtype": "int16-pcm",
+      "shape": [null],
+      "sample_rate_hz": 16000,
+      "chunk_ms": 80
+    },
+    "output": {
+      "dtype": "int64",
+      "shape": [null]
+    }
+  },
+  "target": {
+    "hardware": "CPU",
+    "abi": "armeabi-v7a"
+  },
+  "performance": {
+    "rtf": 2.0,
+    "measured_on": "32-bit ORT build, generic ARM CPU, 2026-07-14",
+    "methodology": "aarch64-only SIMD GEMM kernels make the 32-bit ABI slow by construction; the same cartridge measures rtf ~0.25 on arm64-v8a — both stated, per the honesty rule"
+  },
+  "quality": {
+    "unmeasured": true,
+    "harness": "WER harness (roadmap Phase 4; extend to moonshine)"
+  },
+  "attributes": {
+    "languages": ["en"],
+    "streaming": true,
+    "endpointing": "signal"
+  },
+  "requirements": {
+    "needs_accelerator": false,
+    "os": {
+      "name": "android",
+      "min_api": 29
+    }
+  }
+}

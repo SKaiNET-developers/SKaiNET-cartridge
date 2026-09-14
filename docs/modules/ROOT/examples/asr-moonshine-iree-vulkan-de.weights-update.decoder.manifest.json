@@ -1,0 +1,66 @@
+{
+  "schema_version": "2",
+  "kind": "weights-update",
+  "id": "asr-moonshine-iree-vulkan-de",
+  "version": "0.2.0",
+  "base": {
+    "kind": "cartridge",
+    "id": "asr-moonshine-iree-vulkan-de",
+    "version": "0.1.0",
+    "digest": "sha256:bbf0beb3386325416fa7c55319159d94f45417ee695e41da96ec088add6e30ed"
+  },
+  "digest_alg": "sha256",
+  "artifacts": [
+    {
+      "role": "model",
+      "path": "models/prefill.vmfb",
+      "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "size": 4200000,
+      "license": "MIT",
+      "component": "decoder"
+    },
+    {
+      "role": "model",
+      "path": "models/step.vmfb",
+      "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "size": 3100000,
+      "license": "MIT",
+      "component": "decoder"
+    },
+    {
+      "role": "weights",
+      "path": "models/params.irpa",
+      "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "size": 91500000,
+      "license": "MIT",
+      "derived_from": {
+        "source": "usefulsensors/moonshine (German fine-tune)",
+        "license": "MIT"
+      },
+      "component": "decoder",
+      "delivery": {
+        "timing": "on-demand",
+        "group": "moonshine-de-decoder-weights"
+      }
+    }
+  ],
+  "provenance": {
+    "producer": "npu-build@1.2.0",
+    "built_at": "2026-09-01T00:00:00Z",
+    "evaluation": {
+      "dataset_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "metric": "wer",
+      "value": 0.171,
+      "baseline": 0.183
+    }
+  },
+  "signatures": [
+    {
+      "keyid": "publisher-2026-09",
+      "alg": "ed25519",
+      "signer": "SKaiNET-cartridge publisher",
+      "signature": "tgskQkJV/7ILhOYVPP8i1IpemF67VpArr5gPGV85GDY8asC+o5tzshT2LJC3YG04w3hAnx3dqU+DfkkMb7akCQ==",
+      "signed_at": "2026-09-14T00:00:00Z"
+    }
+  ]
+}

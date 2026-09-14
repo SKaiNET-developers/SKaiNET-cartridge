@@ -1,0 +1,139 @@
+= Cartridge Runtime ABI v0.1
+:navtitle: Runtime ABI
+
+[.lead]
+The call-level contract every cartridge exports. The capability descriptor makes a cartridge
+*routable*; this ABI is what makes it *replaceable as a unit*. Normative header:
+`cartridge-abi/include/cartridge_abi.h` in this repo — the header's doc comments and this page
+are maintained together; where they disagree, the header wins.
+
+****
+*Status:* drafted (ADR-002). ABI version 0.1. +
+*Prior art it consolidates:* the Whisper-on-NPU cartridge's `whisper_npu.h` (batch), the first
+consumer app's `StreamingAsrBackend` seam and the ORT Moonshine event stream (streaming), Minerva's
+host-verification tolerance model (verification).
+****
+
+== Design rules
+
+* *C ABI as the lingua franca.* One `extern "C"` surface, stable struct layouts, no C++ types
+  across the boundary. Language facades (JNI/Kotlin, a CLI, generated typed bindings) sit on
+  top; the C ABI is the portable seam every one of them reduces to.
+* *Pull-based streaming, no callbacks.* Callbacks force a threading contract onto every
+  consumer language. The host pushes input chunks and pulls result events; the cartridge never
+  calls the host.
+* *Explicit ownership.* The caller owns every buffer it passes in (borrowed for the duration of
+  the call only). The cartridge owns every buffer it returns, valid until the next call on the
+  same session or session end. Nothing crosses the boundary heap-allocated for the other side
+  to free — the one exception is `ctg_result`, released via `ctg_result_release`.
+* *One session, one thread.* A `ctg_session` must be driven from one thread at a time.
+  Sessions of the same cartridge are independent; whether they may run concurrently is a
+  cartridge property (`requirements`, e.g. a single-tenant NPU says no).
+* *No ambiguous errors.* Every call returns a `ctg_status`. Partial failure inside a call is a
+  failure status, never a success with a side-channel flag (the Whisper-on-NPU cartridge's "returns 0 but
+  `stop_reason=3`" pattern is exactly what this rule forbids). `ctg_last_error(session_or_ctx)`
+  returns a human-readable message for the most recent failure on that handle (per-handle, not
+  a process-global — the process-global static in the Whisper-on-NPU cartridge v1.1 is the anti-pattern).
+* *Versioned from day one.* `ctg_abi_version()` returns the packed ABI major/minor. A host
+  refuses a cartridge whose ABI major differs from what it was built against. All public
+  structs begin with a `size` field set by the caller (the vendor `aml_config.typeSize`
+  pattern), so minor versions can append fields without breaking older cartridges or hosts.
+
+== Consumable from any stack
+
+Polyglot consumption is a design goal, not a side effect. A cartridge is fully usable from:
+
+[cols="1,3",options="header"]
+|===
+| Stack | Path
+
+| C / C++ | include `cartridge_abi.h`, link or `dlopen` the cartridge library — the native case
+| Rust | `bindgen` over `cartridge_abi.h` (the header is deliberately bindgen-clean: no
+  function-like macros in the API, fixed-width types only)
+| Kotlin/Native | cinterop `.def` over the header (the native CLI consumer path)
+| JVM / Android | JNI or Panama (`java.lang.foreign`) over the same symbols; or the generated
+  typed Kotlin facade (xref:task-profiles.adoc#typed[]) which wraps exactly this ABI
+| Python | `ctypes`/`cffi` — useful for harnesses and conformance tooling
+| Go | cgo
+|===
+
+The rest of the package is equally language-neutral: the descriptor is plain JSON; manifest
+verification is SHA-256 + Ed25519 (the reference verifier is stdlib Python + openssl). Nothing
+about consuming a cartridge requires Kotlin or the JVM.
+
+== Surface (normative summary)
+
+[source,c]
+----
+/* identity & discovery */
+uint32_t     ctg_abi_version(void);               /* (major << 16) | minor */
+const char*  ctg_descriptor_json(void);           /* embedded capability descriptor, UTF-8 */
+
+/* preflight — runtime-checkable requirements, BEFORE any load */
+ctg_status   ctg_preflight(const char* pack_dir, ctg_preflight_report* report);
+
+/* lifecycle */
+ctg_status   ctg_open (const char* pack_dir, const ctg_open_options* opts, ctg_cartridge** out);
+ctg_status   ctg_close(ctg_cartridge*);
+
+ctg_status   ctg_session_begin(ctg_cartridge*, const ctg_session_options* opts, ctg_session** out);
+ctg_status   ctg_session_end  (ctg_session*);
+
+/* io — batch (io.mode == "batch") */
+ctg_status   ctg_infer(ctg_session*, const ctg_buffer* input, ctg_result** out);
+
+/* io — streaming (io.mode == "streaming"), pull-based */
+ctg_status   ctg_push (ctg_session*, const ctg_buffer* chunk);
+ctg_status   ctg_pull (ctg_session*, ctg_result** out);   /* out==NULL result => nothing pending */
+ctg_status   ctg_flush(ctg_session*);                     /* end of input; drain with ctg_pull  */
+
+/* control */
+ctg_status   ctg_cancel(ctg_session*);                    /* cooperative; session -> CANCELLED  */
+
+/* results & errors */
+ctg_result_kind ctg_result_get_kind(const ctg_result*);   /* PARTIAL | FINAL | ENDPOINT        */
+ctg_status   ctg_result_get_payload(const ctg_result*, ctg_buffer* out);  /* borrowed view     */
+void         ctg_result_release(ctg_result*);
+const char*  ctg_last_error(const void* cartridge_or_session);
+----
+
+Key semantics:
+
+* *Batch* cartridges implement `ctg_infer`; *streaming* cartridges implement
+  `ctg_push`/`ctg_pull`/`ctg_flush`; each returns `CTG_E_UNSUPPORTED` for the other family.
+  Which family a cartridge speaks is in its descriptor (`io.mode`) — hosts route on it, they
+  don't probe.
+* `ctg_result_kind` carries the endpointing ruling (index.adoc, contract): `ENDPOINT` is a
+  *data* event ("speech ended at t") a `signal`-endpointing cartridge may emit; what to do
+  about it is host policy. `endpointing: none` cartridges simply never emit it.
+* `ctg_preflight` checks what only a device can answer — driver presence/version
+  (`requirements.driver`, e.g. the Whisper-on-NPU cartridge's patched vendor driver ≥ 1.7.1), accelerator
+  presence, memory — and returns a structured report. Hosts MUST preflight before first
+  `ctg_open` on a device; the build-time staging step cannot see fleet state.
+* Payload encoding per port follows the descriptor's `io` block (dtype, shape/chunk, sample
+  rate). The ABI moves bytes; the descriptor says what they mean; the generated typed facade
+  turns that into compile-time types for Kotlin consumers.
+
+== Threading & reentrancy
+
+* A session is single-threaded; concurrent calls on one session are undefined behavior the
+  cartridge may guard but must not be required to.
+* `ctg_cancel` is the one exception: callable from any thread; the in-flight call on that
+  session returns `CTG_E_CANCELLED` as soon as the cartridge can stop.
+* Distinct sessions are independent unless the descriptor's `requirements` say otherwise
+  (single-tenant accelerators).
+
+== Relation to existing code (retrofit map, roadmap Phase 3)
+
+[cols="2,4",options="header"]
+|===
+| Existing | Becomes
+
+| `whisper_npu_create/destroy` | `ctg_open`/`ctg_close` (+ config via `ctg_open_options`)
+| `whisper_npu_transcribe` | `ctg_session_begin` + `ctg_infer` + `ctg_result_*`
+| `whisper_npu_result` + `free_result` | `ctg_result` + `ctg_result_release`
+| return 0 + `stop_reason=3` | a real `ctg_status` failure
+| `StreamingAsrBackend.feed/finish/reset` (the app's Moonshine adapter) | `ctg_push`/`ctg_flush`+drain/`ctg_session_end`+`begin`
+| ORT Moonshine `LineCompleted` event | `ctg_pull` → result kind `ENDPOINT` + `FINAL`
+| patched-driver requirement (README prose) | `requirements.driver` + `ctg_preflight`
+|===

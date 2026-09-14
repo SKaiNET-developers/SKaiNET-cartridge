@@ -1,0 +1,172 @@
+= Task profiles
+:navtitle: Task profiles
+
+[.lead]
+A *task profile* is the public, versioned, per-`task` consumer contract that makes
+profile-plane swaps (xref:index.adoc#two-planes[two planes]) real: the adapter or runner
+compiles against the profile, not against any one cartridge's io shape.
+
+****
+*Status:* drafted (ADR-005, ADR-008). Profiles shipped as the KMP module
+`cartridge-task-profiles` in this repo: `asr/v1` and `yolo/v1`. Resolves OQ12 for `asr`
+and the "detection" portion for `yolo`; `embedding` and `tts` remain open.
+****
+
+== Why profiles must live here (and not in an app)
+
+The de-facto ASR contract today is the first consumer app's voice-engine interface — a *closed,
+app-internal* interface. But a profile is, by construction, the thing *public* cartridge adapters implement:
+it must itself be public, or every "public" cartridge grows a dependency on one product's
+closed code. That is why `asr/v1` is extracted *out* of that app into this repo, stripped of every
+app concept, and why the app's adapter becomes a thin closed wrapper *around* the profile instead
+of the profile itself. (The extraction is an interface negotiation with the app codebase, not
+just spec-writing — tracked in the xref:roadmap.adoc[roadmap], Phase 3.)
+
+What gets stripped, concretely (the app-specific residue found in its adapter API): the
+app-command result field, NLU mode, trigger metadata, and the whole parallel-evaluation
+surface. What remains is the ASR-only subset both existing adapters already implement:
+start / feed audio / stop / cancel / release, with ready, partial-transcript, end-of-speech,
+error, and session-end signals.
+
+== `asr/v1`
+
+Two layers, one artifact (user decision, ADR-005):
+
+* *Core contract — Flow-based KMP.* Idiomatic, testable, no threading contract baked into the
+  public API. Vocabulary merged from the native CLI runner's ASR domain (`sealed interface AsrEvent`)
+  and the ASR subset of the app's voice-engine interface.
+* *Callback bridge — provided, not reinvented.* A thin adapter in the same artifact bridging
+  `Flow<AsrEvent>` to a callback interface, for consumers structured like the app's engines, so
+  each of them doesn't rebuild the bridging (and its subtle cancellation bugs) privately.
+
+[source,kotlin]
+----
+// cartridge-task-profiles, package sk.ainet.cartridge.profile.asr.v1 — normative surface
+public interface AsrEngine : AutoCloseable {
+    public val info: AsrEngineInfo                       // profile's own type — no app types
+    public fun session(config: AsrSessionConfig = AsrSessionConfig()): AsrSession
+}
+
+public interface AsrSession : AutoCloseable {
+    /** Feed PCM; safe to call from one producer at a time. */
+    public suspend fun feed(chunk: AsrAudioChunk)
+    /** Signal end of input; events flow completes after FINAL. */
+    public suspend fun finish()
+    public fun cancel()
+    /** Cold until collected; completes after the terminal event. */
+    public val events: Flow<AsrEvent>
+}
+
+public sealed interface AsrEvent {
+    public data object Ready : AsrEvent
+    public data class Partial(val text: String) : AsrEvent
+    /** DATA event per the endpointing ruling (ADR-003); host decides what it means. */
+    public data class EndOfSpeech(val atMillis: Long?) : AsrEvent
+    public data class Final(val text: String, val tokens: List<Int>?) : AsrEvent
+    public data class Failed(val error: AsrError) : AsrEvent
+}
+----
+
+Profile rules:
+
+* The profile owns *all* its types (`AsrEngineInfo`, `AsrError`, config, chunk). Today
+  the app's Moonshine adapter `StreamingAsrBackend.describe()` leaks an app-API type — the
+  profile version of that seam must not.
+* A batch cartridge (Whisper) implements the same session shape: it buffers `feed`, does the
+  work in `finish`, emits one `Final`. A streaming cartridge emits `Partial*` and possibly
+  `EndOfSpeech`. The *capability* difference stays visible in `AsrEngineInfo`/the descriptor —
+  the profile hides the io shape, never the capability.
+* Profiles are versioned like the descriptor: `asr/v1` is frozen once two independent
+  consumers ship against it; incompatible change = `asr/v2`.
+
+Consumers on day one (roadmap Phases 3–4): both of the first app's ASR adapters (their duplicated
+~250–300 LOC of session/channel/PCM plumbing hoists into a shared support lib beside the
+profile), and the native CLI's runners (which currently have no common interface at all).
+
+== `yolo/v1`
+
+One layer, one artifact (ADR-008) — deliberately simpler than `asr/v1`:
+
+* *Single-shot only.* No Flow-based session, no callback bridge. Every real cartridge
+  candidate behind this profile (an ONNX Runtime Android app, an on-device
+  vendor NPU/IREE pipeline, and an unfinished SKaiNET-DSL-native graph) captures one whole
+  image and infers once — none stream. `YoloEngine.infer()` mirrors the C ABI's
+  `ctg_infer` directly: one input, one terminal result.
+* *No callback bridge.* Unlike `asr/v1`, there is no known callback-structured consumer
+  for detection today, so ADR-008 doesn't add one speculatively. Revisit if a real
+  consumer needs it.
+* *Named after the model family, not the task* — a deliberate departure from `asr/v1`'s
+  task-based naming (ADR-008). A future non-YOLO detector gets its own profile rather
+  than forcing this one to abstract over an architecture it was never validated against.
+
+[source,kotlin]
+----
+// cartridge-task-profiles, package sk.ainet.cartridge.profile.yolo.v1 — normative surface
+public interface YoloEngine : AutoCloseable {
+    public val info: YoloEngineInfo                          // profile's own type — no app types
+    public suspend fun infer(image: YoloImage): YoloResult
+}
+
+public sealed interface YoloResult {
+    public data class Detections(public val boxes: List<Detection>) : YoloResult
+    public data class Failed(public val error: YoloError) : YoloResult
+}
+
+public class Detection(
+    public val box: BoundingBox,
+    public val classId: Int,
+    public val label: String?,   // resolved from attributes.label_set when available
+    public val score: Float,
+)
+----
+
+Profile rules:
+
+* The profile owns *all* its types (`YoloEngineInfo`, `YoloImage`, `BoundingBox`,
+  `YoloError`) — same rule `asr/v1` states.
+* `Detection.box` is in the *original* image's pixel coordinates, never the model's
+  resized/letterboxed input — undoing that transform is the implementation's job, so
+  consumers never need to know the model's native resolution.
+* A streaming/video variant, if ever needed, is `yolo/v2` — not a capability flag on
+  this profile, unlike `asr/v1` which must hide the batch/streaming difference from
+  day one because both kinds of real ASR cartridge already exist.
+* Versioned like `asr/v1`: frozen once two independent consumers ship against it;
+  incompatible change = `yolo/v2`.
+
+Consumers on day one (none yet — tracked separately, not in this repo): a phone/ORT
+variant and an edge-board/NPU variant of a router/CPE-recognition cartridge, both
+candidates for implementing this profile; a SKaiNET-DSL-native implementation is a
+longer-term stretch goal (currently a zero-weight skeleton, unverified against IREE).
+
+[#typed]
+== The typed facade — compile-time safety at the cartridge seam
+
+SKaiNET's strongest DSL property is compile-time type safety; the cartridge layer keeps it —
+honestly scoped to what SKaiNET itself guarantees:
+
+* SKaiNET encodes *dtype* in the type system (phantom types: sealed `DType` objects as type
+  arguments, `Tensor<FP32, Float>`); *shapes are runtime data* (`Shape`, `Dim.DYNAMIC`) checked
+  at graph-build time, not type-level ranks.
+* The cartridge facade mirrors exactly that split: *dtype and port identity are compile-time*;
+  *shape agreement is checked at build/staging time* by the staging plugin against the
+  descriptor, and again at load by the runtime.
+
+Mechanism: the build-time staging step (roadmap Phase 2) generates, from the verified
+descriptor, one Kotlin type per io port and a typed handle per cartridge:
+
+[source,kotlin]
+----
+// GENERATED from asr-whisper-tiny-npu-armv7.descriptor.json — do not edit
+public value class LogMel80x3000(public val data: FloatArray)   // io.input:  float32 [1,80,3000]
+public value class TokenIdsInt64(public val ids: LongArray)     // io.output: int64  [null]
+
+public object WhisperTinyNpu :
+    BatchCartridge<LogMel80x3000, TokenIdsInt64> { /* wraps the C ABI */ }
+----
+
+A consumer that wires a `PcmChunk16k80ms` into a cartridge expecting `LogMel80x3000` fails to
+*compile*. Binary-plane swaps (same io contract, same `family`) keep the generated types valid
+by definition; a profile-plane swap changes them, which is precisely the compile-time signal
+that the consumer must go through the task profile instead. The descriptor is the single
+source of truth — the same JSON drives routing, verification, and the generated types, so the
+type thread runs end-to-end: SKaiNET DSL → export → descriptor → generated consumer types.
