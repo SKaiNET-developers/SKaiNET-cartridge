@@ -3,7 +3,7 @@
 // Only the jvm target is wired in Phase 1; Android and native targets (a Kotlin/Native CLI runner's
 // linuxArm64, the app adapters' androidTarget) land with their consumers in Phases 3-4.
 plugins {
-    kotlin("multiplatform") version "2.4.10"
+    kotlin("multiplatform") version "2.4.20"
 }
 
 kotlin {
