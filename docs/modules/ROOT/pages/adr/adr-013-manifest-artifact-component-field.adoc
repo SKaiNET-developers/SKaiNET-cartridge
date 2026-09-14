@@ -1,0 +1,51 @@
+= ADR-013 — A `component` label on manifest artifacts, for cartridges that are internally a composed pipeline
+
+*Status:* proposed (2026-09-02, spec v0.2 candidate). Extends the manifest schema only; +
+no ABI, descriptor, or threat-model change. +
+*Context:* A cartridge is not always one model. Moonshine's real streaming pipeline is +
+five separate compiled graphs behind one ABI surface — `frontend.vmfb`, `encoder.vmfb`, +
+`adapter.vmfb`, `prefill.vmfb`, `step.vmfb` — plus shared `params.irpa`, `vocab.bin`, +
+`dec_embed.bin` (the German and English variants share this asset contract). +
+Nothing about this needed a schema change +
+to work — `cartridge_abi.h` hides the whole pipeline behind one opaque load/infer surface, +
+exactly as ADR-002 intends. But a real, concrete need surfaces once weight updates enter +
+the picture: a fine-tune round can touch only the decoder side of the pipeline (say, +
+`prefill.vmfb` + `step.vmfb` + `params.irpa`) while the frontend and encoder are +
+unchanged. The `kind=weights-update` manifest already handles this *mechanically* — +
+`artifacts` simply lists only the changed files, as +
+`asr-whisper-tiny-npu.weights-update.round17.manifest.json` already demonstrates for a +
+single-artifact cartridge. What is missing is a *name* for "the changed files" as a +
+group: today a host, a build tool, or a person reading the manifest can only infer +
+"this update is the decoder" from filename convention, not read it as a stated fact. +
+The same gap shows up composed with ADR-009: marking "the decoder" as `on-demand` +
+delivery today means separately tagging `prefill.vmfb`, `step.vmfb`, and `params.irpa` +
+with matching `delivery.group` strings and hoping the convention holds — there is no +
+field that says these three artifacts *are* one named thing. +
+*Decision:* Add an optional `component` string field to a manifest artifact +
+(`cartridge-manifest.schema.json`, sibling to the existing `license`/`derived_from`/ +
+`encryption`/`delivery` fields already added per-artifact). It is a free-form, +
+cartridge-author-defined label — no enum, the same open-endedness as `role: other` and +
+`derived_from.source` today, since valid component names are entirely specific to how a +
+given cartridge is internally composed (`"frontend"`, `"encoder"`, `"adapter"`, +
+`"decoder"`, `"prefill"`, `"step"` for Moonshine; something else entirely for a +
+different architecture). `component` is manifest-only, not a descriptor field, matching +
+where `license`/`delivery` already live — the descriptor's job is capability routing +
+across cartridges, not describing one cartridge's internal file layout. It changes +
+nothing about how an update applies: a `kind=weights-update` manifest still explicitly +
+lists every changed artifact by `path`+`digest`, exactly as required today; `component` +
+is a label for grouping and selection by tooling (a build script picking "everything +
+tagged decoder", a UI showing "updating: decoder"), never an implicit "replace everything +
+with this label" instruction. This keeps update application exactly as conservative and +
+explicit as it already is — the new field only makes an existing, already-possible +
+partial update *nameable*, it does not add a new way to identify what gets replaced. +
+*Consequences:* a cartridge author can label the artifacts belonging to one internal +
+pipeline stage, so a `weights-update` for just that stage reads as "this is a decoder +
+update" instead of requiring the reader to infer it from filenames, and so an ADR-009 +
+`delivery` grouping for that stage can be described as one named component rather than +
+several artifacts that merely happen to share a `delivery.group` string by convention. +
+No existing manifest is invalidated — the field is optional and additive, `additionalProperties: +
+false` elsewhere on the artifact object is unaffected. Left open, not decided here: +
+whether a future profile-plane task-profile schema should ever *require* declaring a +
+cartridge's component graph (e.g. for a host to statically verify a partial update covers +
+a complete, loadable set of stages) — today that check is left to the cartridge's own +
+runtime, consistent with how the ABI already hides pipeline structure entirely.

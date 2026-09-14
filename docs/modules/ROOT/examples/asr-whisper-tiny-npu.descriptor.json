@@ -1,0 +1,64 @@
+{
+  "spec_version": "0.3",
+  "id": "asr-whisper-tiny-npu-armv7",
+  "version": "1.0.0",
+  "family": "whisper-tiny",
+  "execution_mode": "native",
+  "license": "NOASSERTION",
+  "model": {
+    "name": "whisper-tiny",
+    "variant": "4s-int8-hybrid-en",
+    "params": 39000000,
+    "checkpoint": "openai/whisper-tiny",
+    "upstream": {
+      "source": "https://github.com/openai/whisper",
+      "license": "MIT"
+    }
+  },
+  "modality": "audio",
+  "task": "asr",
+  "io": {
+    "mode": "batch",
+    "input": {
+      "dtype": "float32",
+      "shape": [1, 80, 3000],
+      "sample_rate_hz": 16000
+    },
+    "output": {
+      "dtype": "int64",
+      "shape": [null]
+    }
+  },
+  "target": {
+    "hardware": "vendor-npu-armv7-soc",
+    "abi": "armeabi-v7a",
+    "accelerator": "vendor-npu v3"
+  },
+  "performance": {
+    "rtf": 0.8,
+    "measured_on": "vendor reference board, on-device run, 2026-07-16",
+    "methodology": "cartridge test/samples workload; WER/benchmark harness definition pending (roadmap Phase 4)"
+  },
+  "quality": {
+    "unmeasured": true,
+    "harness": "WER harness (roadmap Phase 4)"
+  },
+  "attributes": {
+    "languages": ["en", "de"],
+    "streaming": false,
+    "endpointing": "none",
+    "context_window_s": 4
+  },
+  "requirements": {
+    "needs_accelerator": true,
+    "driver": {
+      "name": "libnpu.so",
+      "min_version": ">=1.7.1",
+      "note": "the stock vendor driver miscompiles int8 output on AArch32; a patched build is required — checked at runtime by ctg_preflight, not at build time"
+    },
+    "os": {
+      "name": "android",
+      "min_api": 24
+    }
+  }
+}

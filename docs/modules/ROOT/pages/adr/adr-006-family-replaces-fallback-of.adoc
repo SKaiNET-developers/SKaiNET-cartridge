@@ -1,0 +1,19 @@
+= ADR-006 — Two-plane replaceability; `family` replaces `fallback_of`
+
+*Status:* accepted (2026-08-25, spec v0.2). Reframes OQ9. +
+*Context:* "Swap a cartridge" conflated two different operations, and v0.1's `fallback_of`
+had two defects: the *fallback* enumerated the natives it stood in for (every new native
+forced an edit + re-sign + re-release of its fallback's descriptor), and the worked example
+(Moonshine as fallback for Whisper) violated v0.1's own "same task/model family" definition —
+different model, different languages, different io mode. +
+*Decision:* Replaceability is specified as two planes: *binary plane* (same io contract + same
+`family` → package swap, generated types stay valid) and *profile plane* (same `task`,
+different io → swap behind a versioned task profile, capability delta surfaced as a descriptor
+diff). `family` states model-family identity only — it scopes binary-plane swaps and
+weight-update applicability. Fallback is not declared; it is *resolved*: same-`task`
+candidates passing the host's hard constraints, native tier preferred, eager tier substituted
+with a loud build warning. OQ9's "how much drift is tolerable" becomes "which attributes the
+host marks required" — host policy, not cross-cartridge annotation. +
+*Consequences:* adding a native cartridge never touches other descriptors; the
+Moonshine-for-Whisper case resolves honestly (fails if `de` is required, substitutes with a
+warning otherwise); the descriptor stays a statement about *this* cartridge only.

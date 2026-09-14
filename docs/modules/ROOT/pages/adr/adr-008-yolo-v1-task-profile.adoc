@@ -1,0 +1,28 @@
+= ADR-008 — `yolo/v1` task profile: single-shot only, no callback bridge, model-family-named
+
+*Status:* proposed (2026-08-30, spec v0.2). Resolves the "detection" portion of OQ12; +
+embedding and tts remain open. +
+*Context:* Three independent, real implementations exist for YOLO-family object detection
+across this ecosystem — an Android/ONNX Runtime app, a proven on-device NPU pipeline
+(vendor NPU/IREE), and a SKaiNET-DSL-native graph (currently a zero-weight skeleton,
+unverified against IREE) — none sharing a common public interface. Unlike ASR, none of the
+real cartridge candidates behind this profile stream: all three capture one full image and
+infer once. There is also no closed, app-internal precedent to extract from (no app-internal
+existing contract for detection), unlike `asr/v1`'s extraction from the first consumer app's
+voice-engine interface (ADR-005). +
+*Decision:* Add `yolo/v1` to `cartridge-task-profiles` as a single, Flow-free, session-free
+contract: one `YoloEngine.infer(image: YoloImage): YoloResult` suspend call, mirroring the C
+ABI's `ctg_infer` exactly (one whole input, one terminal result). No callback bridge ships
+in v1 — unlike `asr/v1`'s two-layer design, there is no known callback-structured consumer
+for detection today, so the bridge would be speculative machinery; add one if and when a
+real consumer needs it. The profile is deliberately named after the model family (`yolo`)
+rather than the task (`detection`), departing from `asr/v1`'s task-based naming — the real
+cartridges behind it are consistently YOLO-family, and a differently-shaped detector, if one
+ever appears, can get its own profile rather than forcing `yolo/v1` to abstract over an
+architecture it was never validated against. +
+*Consequences:* a streaming/video variant, if ever needed, is a new profile version
+(`yolo/v2`) rather than a capability flag on this one — `yolo/v1` does not attempt to hide a
+streaming capability the way `asr/v1` must. The three candidate implementations named above
+can each adapt to this one interface without redesigning it around any single one's current
+shape. If a future non-YOLO detector needs the same shape, revisit the model-family-named
+precedent this ADR sets rather than silently reusing `yolo/v1` for it.

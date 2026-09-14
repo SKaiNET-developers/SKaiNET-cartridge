@@ -1,0 +1,21 @@
+= Decision log (ADRs)
+:navtitle: Decision log
+
+Architecture decisions for the cartridge concept, one page per decision. An open question
+(index.adoc, OQ list) that gets resolved lands here with its reasoning — it never just
+vanishes from the list.
+
+* xref:adr/adr-001-no-in-module-generation-picker.adoc[ADR-001 — No in-module model-generation picker]
+* xref:adr/adr-002-c-abi-pull-based.adoc[ADR-002 — A C ABI, pull-based, is the runtime contract]
+* xref:adr/adr-003-endpointing-data-not-decisions.adoc[ADR-003 — Endpointing: data, not decisions]
+* xref:adr/adr-004-license-composition.adoc[ADR-004 — The effective license must fulfill every upstream license]
+* xref:adr/adr-005-task-profiles-public-two-layer.adoc[ADR-005 — Task profiles are public; asr/v1 is Flow-core + callback bridge]
+* xref:adr/adr-006-family-replaces-fallback-of.adoc[ADR-006 — Two-plane replaceability; `family` replaces `fallback_of`]
+* xref:adr/adr-007-llm-output-schema-and-attributes.adoc[ADR-007 — Structured output and LLM model metadata in the descriptor]
+* xref:adr/adr-008-yolo-v1-task-profile.adoc[ADR-008 (proposed) — `yolo/v1` task profile: single-shot only, no callback bridge, model-family-named]
+* xref:adr/adr-009-platform-asset-delivery.adoc[ADR-009 — Platform-native asset delivery as a deferred-weights packaging shape]
+* xref:adr/adr-010-runtime-descriptor-field.adoc[ADR-010 (proposed) — A `runtime` descriptor field names the execution backend]
+* xref:adr/adr-011-llm-v1-task-profile.adoc[ADR-011 (proposed) — `llm/v1`: a generation task profile over the unchanged pull ABI]
+* xref:adr/adr-012-pack-dir-layout.adoc[ADR-012 (proposed) — Minimal on-disk `pack_dir` layout]
+* xref:adr/adr-013-manifest-artifact-component-field.adoc[ADR-013 (proposed) — A `component` label on manifest artifacts, for composed-pipeline cartridges]
+* xref:adr/adr-014-cartridge-flavors.adoc[ADR-014 — `flavors`: additional measured variants (language, runtime tier, ABI) inside one descriptor]

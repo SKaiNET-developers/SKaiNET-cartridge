@@ -1,0 +1,108 @@
+= Threat model — who verifies what, where
+:navtitle: Threat model
+
+[.lead]
+Signing machinery is only as meaningful as its placement. This page states, per deployment
+shape, what attack the integrity chain (xref:index.adoc#integrity[]) actually stops, where
+verification runs, and what is explicitly out of scope today.
+
+****
+*Status:* drafted (shape A), direction (shapes A′, B). New in spec v0.2 — v0.1 specified
+the mechanism but not the threat model, which invited over-reading what a signature buys.
+Shape A′ added by ADR-009.
+****
+
+== Assets and adversary
+
+A cartridge runs with native-code and (often) NPU privileges inside a product's process. The
+assets: the integrity of what executes on the fleet, the lineage of weights, and — for
+commercial cartridges — the confidentiality of gated weights. The adversary considered: anyone
+able to modify or substitute cartridge bytes *between the publisher's build and the moment of
+load* — a compromised artifact store, a tampered download, a malicious insider re-publishing a
+"newer" version, a stale/vulnerable version being reintroduced.
+
+Out of scope (explicitly): a compromised build pipeline signing malicious bytes with the real
+key (that is key management / CI hygiene, OQ6), a compromised host OS (the platform is the
+trust anchor), and model-level attacks (adversarial inputs, extraction).
+
+== Shape A — build-time staged into a signed app *[drafted]*
+
+The common case today (consuming Mode C): the staging step pulls the cartridge from internal
+artifact storage at *build time* and bakes it into the app bundle (APK), which the platform
+then signs and verifies on-device.
+
+* *Verification runs in CI*, inside the staging step: recompute artifact digests, recompute the
+  manifest digest, check signatures against the pinned publisher key(s) baked into the build
+  image. This is where a tampered artifact store or download is caught.
+* *On the device, the platform's app signing carries integrity.* The cartridge's own signature
+  adds nothing at load time in this shape — verifier, trust store, and cartridge would all live
+  inside the same platform-verified bundle. The spec therefore does NOT require on-device
+  re-verification for shape A; requiring it would be security theater, and saying so plainly is
+  the point of this page.
+* Residual risk: whoever can modify the app bundle can modify everything in it — accepted, as
+  that is the platform's trust boundary, not the cartridge's.
+
+[#shape-a-prime]
+== Shape A′ — build-time staged, weights deferred via platform asset delivery *[direction]* (ADR-009)
+
+A variant of Shape A, not Shape B: the app is still built and reviewed as *one release*, but
+a weight artifact (`manifest artifact.delivery`) is uploaded as an install-time, fast-follow,
+or on-demand pack via Google Play Asset Delivery or Apple On-Demand Resources / Background
+Assets, instead of being baked directly into the APK/IPA. The store's own CDN and review
+process deliver it, on the store's own schedule, but it is still part of the one signed
+submission the developer made — this is *not* an independent update arriving outside any
+app-release cadence, which is what Shape B is built for.
+
+* *Verification at build time is unchanged.* The staging step still resolves and verifies the
+  manifest before upload, exactly as xref:index.adoc#packaging[Packaging] already requires —
+  it additionally routes `delivery`-tagged artifacts to the platform's asset-pack mechanism
+  instead of the main bundle.
+* *No new on-device signature-verification requirement* — same reasoning as Shape A: the
+  deferred pack is covered by the same release's platform review/signing as everything else
+  in the submission, so re-checking the manifest's own Ed25519 signature on-device adds
+  nothing a compromised device couldn't already fake by other means.
+* *Digest verification on arrival IS required, and this is the one place Shape A′ genuinely
+  differs from Shape A.* Shape A's "no on-device re-verification" conclusion rests on the
+  bytes being physically present and covered at install-signing time; a fast-follow or
+  on-demand pack is not — it lands later, over the store's transport, which is not itself a
+  guarantee against a stale pack being served, a build/upload mismatch, or transport
+  corruption. Recomputing the artifact's digest against the manifest once it lands (cheap —
+  one hash, not a full manifest/signature re-verification) is required before the artifact is
+  used.
+* *Failure handling is application-level, not this spec's.* An on-demand pack that never
+  arrives (offline device, user declines a download prompt) is a capability the app didn't
+  get — the same "hard constraint not satisfied" shape
+  xref:index.adoc#selection[Multiple cartridges → selection] already describes for
+  build-time resolution, just discovered at runtime instead. Left open (OQ13) whether this
+  deserves descriptor-level vocabulary of its own.
+
+== Shape B — dynamically delivered cartridges / weight updates *[direction]*
+
+The shape the signing machinery is really built for — bytes arriving on a provisioned device
+*after* the app shipped (a weight update, a newly licensed cartridge). No pipeline for this
+exists yet in the ecosystem; these are the requirements it must meet when it does:
+
+* *Verify on install, not on every boot.* Full digest recomputation of a multi-hundred-MB
+  package on a 32-bit embedded device at every startup is not viable. On install: full verification
+  (artifacts + manifest + signatures + `base.digest` pin). After: a cached attestation (the
+  verified manifest digest) stored in platform-protected storage; boot-time check is cheap
+  (signature over the cached digest), full re-hash only on integrity alarm or storage fault.
+* *Transactional apply with keep-back.* The previous weights remain installed until the new
+  set passes post-install verification (and, where feasible, a self-check inference). A
+  half-applied update on an offline device must be recoverable by construction — A/B slots for
+  weight artifacts, not in-place overwrite.
+* *Anti-rollback for bases, not only updates.* v0.1 pinned weight-updates to their base by
+  digest but nothing stopped *installing an older, signed, vulnerable base version*. Shape B
+  requires a monotonic version floor per cartridge id on the host (provisioned policy), with
+  the TUF snapshot/timestamp shape as the likely mechanism once a registry exists — folded
+  into OQ6/OQ8.
+* *Entitlement-gated weights* (<<licensing,index: Licensing>>): the encrypted-weights `key_ref`
+  resolves through host provisioning; revocation of an entitlement is OQ8.
+
+== What a signature never proves
+
+The signature proves *origin and integrity of bytes*, not truth of claims: a publisher can
+sign a descriptor whose measured RTF or WER is wrong. Honesty of `performance`/`quality` is
+enforced socially and by tooling (the conformance checker re-running the smoke inference, the
+WER harness reproducing the number from `methodology`), not by cryptography — the spec keeps
+those concerns separate on purpose.

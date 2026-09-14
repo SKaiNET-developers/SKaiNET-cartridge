@@ -1,0 +1,55 @@
+{
+  "schema_version": "2",
+  "kind": "weights-update",
+  "id": "asr-whisper-tiny-npu-armv7",
+  "version": "1.1.0",
+  "base": {
+    "kind": "cartridge",
+    "id": "asr-whisper-tiny-npu-armv7",
+    "version": "1.0.0",
+    "digest": "sha256:7776e4a532f3ebe5844955906695711dd797c164964c0e389d5a0827d9a5db9e"
+  },
+  "digest_alg": "sha256",
+  "artifacts": [
+    {
+      "role": "weights",
+      "path": "models/whisper-tiny-en-de.round17.npu",
+      "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+      "size": 10900000,
+      "license": "MIT",
+      "derived_from": {
+        "source": "openai/whisper-tiny (federated fine-tune, round 17)",
+        "license": "MIT"
+      },
+      "encryption": {
+        "alg": "AES-256-GCM",
+        "key_ref": "kms://example-org/cartridge-weights/asr-whisper-tiny-npu-armv7"
+      }
+    }
+  ],
+  "provenance": {
+    "producer": "federated-aggregator@0.4.0",
+    "built_at": "2026-08-20T00:00:00Z",
+    "training": {
+      "round": 17,
+      "method": "fedavg",
+      "participants_count": 412,
+      "dp_epsilon": 3.0
+    },
+    "evaluation": {
+      "dataset_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "metric": "wer",
+      "value": 0.148,
+      "baseline": 0.153
+    }
+  },
+  "signatures": [
+    {
+      "keyid": "aggregator-2026-09",
+      "alg": "ed25519",
+      "signer": "federated-aggregator",
+      "signature": "PO2hl/Bdq3LHRZfbYYuoW0fekzraiUIk1p9V8YtD5Pu0w1Cp7NHX9Bvi+DrUYQwgSdyro7SPQ0mOxhUBqMD7Bg==",
+      "signed_at": "2026-09-14T00:00:00Z"
+    }
+  ]
+}

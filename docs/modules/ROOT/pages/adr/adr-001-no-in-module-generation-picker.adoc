@@ -1,0 +1,11 @@
+= ADR-001 — No in-module model-generation picker
+
+*Status:* accepted (2026-08, backfilled from the Moonshine v2 design discussion). +
+*Context:* When Moonshine v2 appeared as a successor to the first streaming engine, one option
+was a selection mechanism *inside* the module choosing which model generation to run. +
+*Decision:* Rejected. A new model generation is a *new cartridge behind the same seam*, selected
+by the host via descriptors (and, once real, the staging step) — never by logic inside a
+cartridge. A cartridge must not contain "if not me, use the other one". +
+*Consequences:* Cartridges stay dumb and swappable; selection logic concentrates in exactly one
+place (host resolution, index.adoc "Selection"); version coexistence is a packaging concern,
+not a runtime branch.

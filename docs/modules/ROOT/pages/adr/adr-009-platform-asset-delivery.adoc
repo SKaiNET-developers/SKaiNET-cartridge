@@ -1,0 +1,54 @@
+= ADR-009 — Platform-native asset delivery (Play Asset Delivery / iOS On-Demand Resources) as a deferred-weights packaging shape
+
+*Status:* proposed (2026-09-01, spec v0.2 candidate). Adds a third deployment shape +
+alongside threat-model.adoc's Shape A and Shape B; extends the manifest schema. +
+*Context:* Both major mobile app stores already solve "ship a small initial binary, defer +
+large assets" for games — Google Play **Asset Delivery** (install-time / fast-follow / +
+on-demand asset packs, uploaded as part of one App Bundle release, delivered over the +
+Play's own CDN) and Apple's **On-Demand Resources** / the newer **Background Assets** +
+framework (tags/resources declared in one App Store Connect submission, hosted and +
+delivered by Apple). Cartridge weight artifacts are exactly the kind of large, deferrable +
+asset these mechanisms exist for — Moonshine's decoder package alone is tens to low +
+hundreds of MB (the German decoder package measured 177.7 MB, 91.5 MB after dedup), +
+and a CV cartridge's vendor NPU/`.onnx` weights add more of the same. +
+This is genuinely a **third shape**, not a restatement of the two the threat model already +
+names: Shape B ("dynamically delivered cartridges / weight updates") is built for bytes +
+that arrive *independent of any single app release* — a federated-learning round, a +
+hot weight swap between app versions — and its stated requirements (transactional A/B-slot +
+apply, anti-rollback version floors, on-device signature re-verification machinery) are +
+sized for that threat. Platform asset delivery is narrower and safer than that: the +
+deferred pack is uploaded as part of the *same signed release* as the rest of the app and +
+uses the store's own CDN and versioning — it is Shape A's trust boundary with a bigger, +
+lazier install, not Shape B's independent-update problem. Conflating the two would import +
+Shape B's heavier machinery (rollback floors, dual-key roles, cached attestations) where +
+it buys nothing, or — the opposite failure — treat a deferred pack as trivially safe +
+because "it's just Shape A" and skip the one check that's still cheap and worth doing: +
+digest verification of the downloaded bytes, since a platform CDN and its own review +
+process are not a guarantee against a stale pack being served, a build mismatch, or +
+transport corruption, even inside one release's trust boundary. +
+*Decision:* Add a new optional `delivery` object to a manifest artifact
+(`cartridge-manifest.schema.json`): `{ "timing": "install-time" | "fast-follow" |
+"on-demand", "group": "<build-tool-defined pack/tag name>" }`. `timing` borrows Play Asset
+Delivery's own three-term vocabulary directly — it already names exactly the three cases
+that matter and iOS's mechanisms map onto the same three concepts (bundled vs.
+prefetched-after-install vs. fetched-when-first-needed) — rather than inventing new terms
+for the same idea. `group` is a generic, build-tool-owned identifier (an actual Play asset
+pack name or ODR tag lives in that platform's own build config, not in the portable
+manifest) so the spec doesn't couple to either store's product-specific tooling. Add a new
+threat-model subsection, Shape A′, stating precisely what changes and what doesn't: no new
+signature-verification requirement (the deferred bytes are still covered by the same
+release's platform review/signing, per Shape A's own reasoning), but digest verification
+against the manifest IS required once the bytes land on-device — cheap, and the one thing
+Shape A's "no on-device re-verification" conclusion does not license skipping here, since
+unlike Shape A the bytes were not physically present at install-time signing. +
+*Consequences:* a cartridge author can mark specific weight artifacts as install-time,
+fast-follow, or on-demand without the spec naming Play/Apple by product; the build-time
+staging step (already normative, xref:index.adoc#packaging[]) gains one more per-target
+job — routing `delivery`-tagged artifacts into the platform's own asset-pack mechanism
+instead of the main bundle, verifying the manifest as it always did, at build time. Shape B
+remains exactly as scoped — this ADR narrows what Shape B has to cover by giving the more
+common, lower-risk "defer this for install size" case its own, lighter answer, rather than
+one shape doing both jobs. New open question added (OQ13): whether `on-demand` delivery
+that never completes (offline device, user declines) should be a hard capability-loss
+the descriptor's attribute set can express, or purely an application-level failure mode —
+left open, not decided here.

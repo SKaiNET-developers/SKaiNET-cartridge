@@ -1,0 +1,25 @@
+site:
+  title: SKaiNET Cartridge
+  start_page: skainet-cartridge::index.adoc
+
+# Keep Antora's content cache inside the project tree (gitignored) — same as
+# mainline SKaiNET, so the build works in CI containers without a writable $HOME.
+runtime:
+  cache_dir: ./.cache/antora
+
+content:
+  sources:
+    - url: ./..
+      start_path: docs
+      branches: HEAD
+
+ui:
+  bundle:
+    # SKaiNET-branded UI bundle shared by every SKaiNET docs site:
+    #   https://github.com/SKaiNET-developers/skainet-docs-ui
+    # Pinned to a tag for reproducible builds; bumping it is a one-line PR.
+    url: https://github.com/SKaiNET-developers/skainet-docs-ui/releases/download/v1.1.1/ui-bundle.zip
+    snapshot: true
+
+output:
+  dir: ./build/site

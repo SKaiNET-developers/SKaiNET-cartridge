@@ -1,0 +1,74 @@
+{
+  "schema_version": "2",
+  "kind": "cartridge",
+  "id": "asr-whisper-tiny-npu-armv7",
+  "version": "1.0.0",
+  "effective_license": "NOASSERTION",
+  "descriptor_digest": "sha256:15b3d84cb8a5e6ad8c73105cecd461e0b8dafd5b4193645b2e50c919c6892953",
+  "digest_alg": "sha256",
+  "artifacts": [
+    {
+      "role": "runtime",
+      "path": "lib/armeabi-v7a/libwhisper-npu.so",
+      "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "size": 812344,
+      "license": "NOASSERTION",
+      "derived_from": {
+        "source": "vendor NPU whisper demo sources (vendored, modified in-tree)",
+        "license": "Apache-2.0"
+      }
+    },
+    {
+      "role": "model",
+      "path": "models/whisper-tiny-en-de.npu",
+      "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "size": 10900000,
+      "license": "NOASSERTION",
+      "derived_from": {
+        "source": "openai/whisper-tiny",
+        "license": "MIT"
+      }
+    },
+    {
+      "role": "tokenizer",
+      "path": "data_bin/tokenizer_info.bin",
+      "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "size": 812000,
+      "license": "NOASSERTION",
+      "derived_from": {
+        "source": "openai/whisper (tokenizer vocabulary)",
+        "license": "MIT"
+      }
+    },
+    {
+      "role": "descriptor",
+      "path": "cartridge.json",
+      "digest": "sha256:15b3d84cb8a5e6ad8c73105cecd461e0b8dafd5b4193645b2e50c919c6892953",
+      "size": 1604,
+      "license": "NOASSERTION"
+    }
+  ],
+  "provenance": {
+    "producer": "npu-build@1.2.0",
+    "built_at": "2026-07-16T00:00:00Z",
+    "inputs": [
+      {
+        "name": "onnx-source-model",
+        "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      {
+        "name": "calibration-set-de-fleurs",
+        "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    ]
+  },
+  "signatures": [
+    {
+      "keyid": "publisher-2026-09",
+      "alg": "ed25519",
+      "signer": "SKaiNET-cartridge publisher",
+      "signature": "jsnnKeOmCuZB5P0so3H/2RO2lIwUA3X7XBhOOTCBDIDY2sVX8aTkcwQf5ABYVggXlWwtzbg7tS64DtA0HJxWCw==",
+      "signed_at": "2026-09-14T00:00:00Z"
+    }
+  ]
+}

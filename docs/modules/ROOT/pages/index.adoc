@@ -1,0 +1,724 @@
+= Cartridge — a concept in the SKaiNET universe
+:navtitle: Cartridge
+
+[.lead]
+The *cartridge* is the deployment unit of the SKaiNET universe: the bridge between a model and
+a real application on real hardware. This page defines the term and its contract,
+ecosystem-wide — not tied to any one application.
+
+****
+*Spec version:* 0.2 (see <<changelog>>). +
+*Status:* normative draft. Requirement keywords MUST / MUST NOT / SHOULD / MAY are used as in
+RFC 2119. Every section carries a maturity tag: +
+*[working]* — implemented and running today · *[drafted]* — normative text exists, implementation
+pending · *[direction]* — intended course, not yet normative. +
+*Scope:* the whole ecosystem; the first consumer app is one consumer (the first, not the goal). +
+*Companion pages:* xref:abi.adoc[Runtime ABI], xref:task-profiles.adoc[Task profiles],
+xref:threat-model.adoc[Threat model], xref:roadmap.adoc[Roadmap], xref:adr/index.adoc[Decision log]. +
+*Related:* the reference cartridges `asr-whisper-tiny-npu` (Whisper on a vendor NPU) and
+`asr-moonshine-ort-cpu` (Moonshine on ONNX Runtime), the SKaiNET/IREE Moonshine v2 engine, and
+the NPU cartridge builder.
+****
+
+== Definition
+
+*[working]*
+
+A *cartridge* is a *self-contained, application-agnostic software package that runs one model
+on given hardware*, exposing a minimal input→output API that *any* application can call.
+
+It is the *deployment unit of the SKaiNET universe*: the bridge between a _model_ (authored,
+trained, or imported in SKaiNET) and a _real application on real hardware_. A cartridge knows
+its model, its runtime, and its hardware. It knows nothing about any application.
+
+The name is literal. Like a game or print cartridge: a *sealed, swappable unit* you slot into a
+host. The host doesn't reach inside the cartridge; the cartridge doesn't know the host. You
+change capability by swapping the cartridge, not by rewiring the host.
+
+== Why the concept exists
+
+*[working]*
+
+The SKaiNET universe spans model authoring (a KMP tensor framework), export (ONNX / GGUF /
+HLO), hardware compilers (a vendor NPU SDK via its cartridge builder, ONNX Runtime, IREE HAL bridges), and a
+growing set of on-device targets (NPUs, CPUs of varied ABIs, GPUs). Applications want _"run
+this model, fast, on this device"_ without absorbing any of that.
+
+Without a named unit, every app re-integrates a model+runtime+hardware combination from
+scratch, and every new model or backend is a fresh integration. The cartridge is the seam that
+makes the model+runtime+hardware a *product you can hand to an application* — build it once,
+reuse it everywhere, swap it without touching the app.
+
+Two forces it resolves:
+
+* *Reuse.* One cartridge, many applications. The same Whisper-on-NPU cartridge serves a
+  voice assistant, a CLI, or a test harness unchanged.
+* *Replaceability.* A faster model, a new quantization, a different backend → a new cartridge
+  behind the same seam. The app is untouched.
+
+[#two-planes]
+== Replaceability has two planes
+
+*[drafted]*
+
+"Swap the cartridge" means two different operations depending on what changes, and the spec
+treats them separately throughout:
+
+* *Binary plane* — the new cartridge has the *same io contract* (same descriptor `io` block,
+  same `family`): swapping is a package swap. Nothing recompiles; generated typed bindings
+  (xref:task-profiles.adoc#typed[typed facade]) stay valid. Example: the Whisper-on-NPU cartridge with the
+  `en` model set ↔ the same cartridge with a `de` model set; or a requantized weights drop of
+  the same model.
+* *Profile plane* — the new cartridge has a *different io shape but the same `task`*: swapping
+  happens behind a versioned xref:task-profiles.adoc[task profile]. The adapter (or runner)
+  compiles against the profile, not the cartridge; the capability delta (languages, streaming,
+  endpointing) is machine-readable as a descriptor diff and must be an accepted tradeoff, never
+  a silent loss. Example: batch Whisper-on-NPU ↔ streaming Moonshine.
+
+A swap that changes the `task` is not a swap; it is a different capability.
+
+== The cartridge contract
+
+*[drafted]* — v0.2 revises the native-speed and endpointing clauses; see <<changelog>>.
+
+=== A cartridge MUST
+
+* *Be self-contained* — bundle its own native runtime and model artifact(s). Nothing outside
+  itself except the OS and the hardware driver. A dependency on a *specific driver build or
+  version* (e.g. a patched NPU driver) is permitted but MUST be declared in
+  `requirements.driver` and MUST be checkable at runtime via the ABI's preflight
+  (xref:abi.adoc#preflight[`ctg_preflight`]) — a build machine cannot see the fleet's drivers.
+* *Use the fastest execution path available for its declared `execution_mode`.* For
+  `execution_mode: native`, that means the HW-specific path the target offers (an NPU vendor
+  compiler; ORT with the ABI's best kernels; IREE for a supported target). For
+  `execution_mode: eager`, portability is the point: a correct, unoptimized reference path that
+  runs anywhere is contract-compliant — the eager tier is a legitimate cartridge, not a
+  degraded one (see <<packaging>>). In both modes, performance is *honestly reported* as
+  measured (see <<anatomy>>), never promised.
+* *Be application-agnostic* — its API is model in → model out. It contains *no* application
+  types, no product contracts, no domain logic belonging to any one product. This is a
+  *structural* requirement, about the interface and code, not a licensing one; whether the
+  *model weights* are open, commercially licensed, or encrypted-and-gated is a separate,
+  per-cartridge choice (<<licensing>>).
+* *Expose the Cartridge Runtime ABI* — the C call-level contract defined in
+  xref:abi.adoc[the Runtime ABI page]: lifecycle, batch and streaming io, cancellation,
+  preflight, error model, buffer ownership, and threading rules. Package-level metadata makes a
+  cartridge *routable*; the ABI is what makes it *replaceable as a unit*. A language-native
+  facade (JNI/Kotlin, a CLI) MAY sit on top, but the C ABI is the portable seam.
+* *Be replaceable as a unit* — on the binary plane by package swap, on the profile plane behind
+  a task profile (<<two-planes>>).
+* *Declare its capabilities* — a machine-readable descriptor (<<anatomy>>) so hosts can select
+  among cartridges without hard-coding.
+* *Be verifiable* — ship with (or resolve to) a signed manifest of content digests covering
+  every artifact it bundles, so a host can prove *this is the original, unmodified cartridge*
+  before it ever runs (<<integrity>>). Designed in from the first cartridge, not retrofitted.
+* *Declare the licenses it stands on* — the manifest records a license per artifact and the
+  cartridge's *effective* license, which MUST satisfy every upstream obligation
+  (<<licensing>>). An artifact with no declared license is a packaging error, not a default.
+
+=== A cartridge MUST NOT
+
+* Contain *application policy*: session lifecycle, business rules, intent/command formats,
+  product-specific vocabularies, or any closed/proprietary logic. Those belong to the *adapter*.
+* Make *endpointing decisions* — but it MAY contain signal-level endpointing *machinery*. The
+  ruling (ADR-003):
+  a cartridge MAY embed VAD / speech segmentation when it is intrinsic to how its model
+  streams, and MUST surface it *as data* — segment boundaries, endpoint events, speech
+  probabilities on its output stream — never *as decisions*. "Speech ended at t=3.1s" is
+  cartridge output; "therefore the session is over" is adapter policy. The descriptor declares
+  which machinery is inside via `attributes.endpointing: none | signal | semantic`.
+  Grounding: the ORT Moonshine cartridge runs Silero VAD + utterance segmentation internally
+  and emits `LineCompleted` events (`endpointing: signal`); the SKaiNET/IREE Moonshine v2
+  engine has no VAD and relies on the host's stop signal (`endpointing: none`). Both are
+  contract-compliant; hiding either fact would not be.
+
+[NOTE]
+====
+*Boundary test.* If a line of code in a cartridge references both a runtime primitive _and_ an
+application concept (a session, a command schema, a product intent), it is in the wrong layer —
+and, because cartridges ship publicly, it has also leaked closed application logic into a public
+component.
+====
+
+[#licensing]
+== Licensing: two rules
+
+*[drafted]*
+
+=== Rule 1 — app-agnosticism and open weights are separate axes
+
+*App-agnostic* (structural: no product logic inside) and *open-source* (a licensing/business
+choice about the weights) are two different axes, and the contract only requires the first. A
+cartridge can be app-agnostic with open weights, or app-agnostic with commercially licensed /
+encrypted weights (<<integrity>>, "Encrypted weights") that only decrypt once the host resolves
+a valid entitlement key. What must *never* happen is licensing terms leaking into the cartridge
+as *code* — a license-check, a call-home, a feature gate keyed off a product identity. Those
+are application policy and belong in the adapter or a provisioning service.
+
+=== Rule 2 — the effective license must fulfill every upstream license
+
+A cartridge is a *derived work of everything it bundles*: model weights (usually derived from a
+published checkpoint), calibration data, vendored runtime code, tokenizers. The manifest
+therefore records, per artifact, a `license` (SPDX expression or a marker like `proprietary` /
+`community-restricted`) and `derived_from` (what upstream it descends from). The cartridge's
+declared *effective license* MUST be satisfiable given all of them — attribution carried, share-
+alike honored, notices shipped, usage caps respected. A build-time license gate enforcing this
+is Phase-2 tooling (xref:roadmap.adoc[roadmap]); the manifest fields exist now.
+
+Worked reality checks from the existing cartridges:
+
+[cols="2,5",options="header"]
+|===
+| Case | Fact
+
+| `asr-whisper-tiny-npu` today
+| Has *no license file at all*: unlicensed first-party code, Whisper-derived NPU weights
+  with no OpenAI/MIT attribution, and Apache-2.0 vendor sample code modified in-tree without
+  the modification notices §4(b) requires. The public description of it as "Apache-2.0" is
+  currently aspirational. Remediation is a Phase-3 roadmap item; until then its descriptor
+  carries `license: NOASSERTION`.
+
+| `asr-moonshine-ort-cpu`
+| The bundled `tiny-streaming-en` model is MIT (Moonshine AI licenses its *English* models
+  MIT). Its *non-English* models fall under the Moonshine AI Community License: commercial use
+  only below USD $1M annual revenue, mandatory notice and "Powered by Moonshine AI" display —
+  i.e. any *German* Moonshine cartridge for this ecosystem requires an enterprise license
+  before it can exist. Exactly the kind of constraint the manifest must carry and a build gate
+  must surface (OQ10's worked case).
+|===
+
+The descriptor's `license` field states the *effective* license: an SPDX id for open weights;
+`proprietary` or a license/entitlement URL for gated ones (paired with an `encryption` block on
+the relevant artifact); `NOASSERTION` for a not-yet-remediated package — which conformance
+tooling treats as a failure, by design.
+
+== The three layers
+
+*[working]*
+
+[listing]
+----
+   Application            any app (a voice assistant, a CLI, a test harness, another product)
+        │
+        ▼
+   Adapter               app-specific glue: the application's contract + policy
+        │                (session lifecycle, NLU, command assembly, fallback)   — CLOSED, per-app
+        ▼
+   Cartridge             self-contained; runs one model on given HW
+                         (native runtime + model + ABI + capabilities)          — PUBLIC, app-agnostic
+----
+
+* *Cartridge* — public, reusable, app-unaware. Model in → model out.
+* *Adapter* — the thin, app-specific layer that plugs a cartridge into one application's
+  contract, via a xref:task-profiles.adoc[task profile] where one exists. It is where the
+  closed, product-specific code lives, and the only layer that knows both "cartridge" and
+  "application". (In the first consumer app: a voice-engine implementation that drives a cartridge, runs
+  NLU, and assembles the app's command format.)
+* *Application* — owns the user, the UI, the product decisions.
+
+The split is a *distribution boundary as much as an architectural one*: a cartridge's code,
+interface, and manifest are always public and app-agnostic; adapters and applications are
+app-specific and may be closed source. Whether a cartridge's *weights* are also free is a
+separate, per-cartridge licensing choice — <<licensing>>.
+
+[#anatomy]
+== Anatomy of a cartridge
+
+*[drafted]* — descriptor schema v0.2; the `quality` and `model` blocks are new.
+
+[cols="1,3",options="header"]
+|===
+| Part | What it is
+
+| Native runtime
+| the inference engine for the target: an NPU driver stack, ORT, IREE, … packaged as the
+  cartridge's own libraries
+
+| Model artifact(s)
+| the compiled/quantized model in the runtime's format (a vendor NPU blob, `.ort`, `.vmfb`, GGUF, …) plus
+  any side data (tokenizers, mel filters, calibration-derived scales)
+
+| Runtime ABI
+| the C call-level contract (xref:abi.adoc[]) every cartridge exports; language facades may
+  wrap it
+
+| *Capability descriptor*
+| machine-readable metadata a host routes on — schema:
+  `examples/cartridge-descriptor.schema.json`
+
+| *Signed manifest*
+| content digests + per-artifact licenses + signatures (<<integrity>>) — schema:
+  `examples/cartridge-manifest.schema.json`
+|===
+
+=== Capability descriptor (v0.3 shape)
+
+[listing]
+----
+spec_version    : "0.3"
+id, version     : identity (OQ3 naming) + semver
+execution_mode  : native | eager
+family          : model-family identity — the binary-plane grouping (same family + same io
+                  = package-swappable; also scopes weight-update applicability)
+model           : name, family, variant, params, checkpoint, upstream {source, license}
+license         : EFFECTIVE license (see Licensing, Rule 2)
+modality, task  : audio/asr, image/detection, …
+io              : input/output tensor or stream contract — not application terms
+target          : hardware + ABI (+ accelerator) the cartridge runs on
+performance     : measured, not promised — rtf, latency, measured_on, methodology (a pointer
+                  to the workload/benchmark definition that produced the number)
+quality         : task-level quality, measured — for asr: WER + dataset + harness refs.
+                  MANDATORY for task: asr. Without it, fallback tolerance (OQ9) and
+                  weight-update regression gates are unanswerable.
+attributes      : task-specific — languages, streaming, endpointing (none|signal|semantic),
+                  context window, label set, …
+requirements    : accelerator?, driver name+version, memory, os — split by WHERE they are
+                  checkable: build-time (abi, packaging) vs runtime preflight (driver, memory)
+flavors         : (ADR-014) additional measured variants sharing this identity — another
+                  bundled language, runtime tier, or ABI — each its own id, overriding
+                  whichever of attributes/model/performance/quality/target/requirements
+                  actually differ; everything else (task/family/io/license/…) is shared
+----
+
+Performance *and quality* are *measured on the stated target and reported honestly*, including
+when they are _not_ good enough (a cartridge may be RTF ≈ 2 on one ABI and ≈ 0.25 on another —
+both are true, both are stated). `measured_on` names the device/run; `methodology` points at
+the workload definition so the number is falsifiable, and internal infrastructure details
+(device IPs, hostnames) stay out of public descriptors.
+
+`flavors` (ADR-014) is how one *package* covers several independently-addressable,
+independently-measured *identities* — Moonshine ships one AAR with an English base and a
+German flavor (different upstream checkpoints, different measured RTF); FunctionGemma ships
+one AAR with a Vulkan base and a CPU flavor (4× slower, no accelerator required). The base
+descriptor's own fields stay the default flavor unchanged, so a host that predates ADR-014
+still resolves correctly against them — `flavors` is purely additive. A flavor field, when
+present, *replaces* the base's field of the same name in full (no deep merge); a host treats
+`\{base} ∪ {each flavor}` as the complete set of identities the package exposes, applying
+every per-descriptor rule (mandatory `quality` for `task=asr`, etc.) to each one individually.
+
+== Cartridge as a service
+
+*[direction]*
+
+Producing a cartridge is *hardware-specific compilation*: a model + a target → a validated,
+packaged cartridge. That is inherently backend-plural — one NPU vendor's path is its own
+toolchain, other NPUs/targets need other compilers, CPU needs ORT, some targets go through IREE.
+
+*The NPU cartridge builder is already a cartridge builder for one backend* — the vendor NPU compiler:
+model → NPU blob → validated with the vendor's inspection tool → verified on-device over adb. Its
+calibrate / convert flow, and the resulting NPU blob + tokenizer + mel filters, are exactly a
+Whisper-on-NPU cartridge's model side.
+
+The general form — *"cartridge as a service"* — is a build service with *pluggable compiler
+backends* (a vendor NPU compiler, ORT, IREE, …) that takes `(model, target)` and emits a cartridge with its
+capability descriptor filled from the build. A forward direction, not a current deliverable.
+
+[#integrity]
+== Integrity, provenance, and weight-only updates
+
+*[drafted]* — mechanism proven by runnable example; v0.2 fixes the update-verification gate.
+Threat model and deployment shapes: xref:threat-model.adoc[].
+
+A cartridge runs with native-code and NPU privileges on the host. Before a host loads one it
+must be able to prove two things: *this is the artifact the publisher actually built*
+(integrity) and, once weight-only updates exist, *this update legitimately descends from that
+artifact* (provenance/lineage).
+
+=== Content addressing
+
+Every artifact a cartridge bundles (native runtime, model weights, tokenizer, calibration side
+data, the capability descriptor itself) is identified by a SHA-256 digest, not by name or path
+alone. A *manifest* lists every artifact's role, path, digest, size, and *license*
+(<<licensing>>, Rule 2), plus provenance (producer, build time, build inputs). The manifest's
+own digest is computed over its canonical JSON with the `signatures` field excluded — that
+digest is what gets signed, and it is also how one manifest pins another: by digest, never by a
+mutable tag.
+
+*Granularity rule:* an artifact is addressable only if it is a distinct file. A blob baked into
+a compiled binary (the ORT Moonshine cartridge bakes its 21.4 MB Silero VAD model in as a C
+array) is covered only by the containing binary's digest — meaning it cannot be
+weight-updated or license-tracked independently. Cartridge builds SHOULD keep model data as
+file artifacts; where baking in is unavoidable, the manifest records the containing binary's
+`derived_from` accordingly.
+
+=== Signing
+
+The manifest carries one or more detached signatures (`keyid`, `alg`, `signer`, `signature`,
+`signed_at`). Ed25519 over the manifest digest is the default choice: small keys and
+signatures, fast to verify on a constrained device. A host verifies a cartridge before load by:
+recomputing every artifact digest and comparing it to the manifest, recomputing the manifest
+digest, and checking the signature(s) against a *trust store* of keys it already holds for that
+cartridge `id` — pinned at provisioning time or delivered via the registry (OQ4), never shipped
+inside the artifact it is meant to authenticate. Where verification actually runs, per
+deployment shape, is defined in xref:threat-model.adoc[the threat model] — for the common
+build-time-staged shape it is the CI staging step, not the device, that runs this check.
+
+A runnable proof lives in `examples/`: schema, signed example manifests, and
+`verify_manifest.py` (stdlib+openssl, no crypto dependency). Legitimate manifests verify;
+flipping a single field breaks the signature.
+
+=== Weight-only updates (federated learning and beyond)
+
+*[direction]* — modeled and schema-supported; no producing pipeline exists yet in this
+ecosystem. The design is here so the first fine-tune or federated round lands in a prepared
+shape, not so anyone believes it runs today.
+
+The runtime + tokenizer + code of a cartridge changes rarely; the *weights* are expected to
+change often — a new fine-tune, a quantization pass, or a federated-learning aggregation round.
+Weight-only updates are modeled as a distinct, separately-signed object:
+
+* `kind: weights-update`, carrying only the changed artifact(s) (a full weights blob, or later a
+  delta/adapter such as a LoRA update — OQ7).
+* `base: {kind, id, version, digest}` — pins the exact base cartridge (or prior update) it
+  applies to, *by digest*. A host refuses to apply an update whose `base.digest` doesn't match
+  what is currently installed — this stops rollback and base-substitution attacks and makes a
+  chain of rounds an auditable, tamper-evident lineage.
+* `provenance.training` records round number, aggregation method, participant count, optionally
+  a differential-privacy budget.
+* `provenance.evaluation` records the *regression gate* (below).
+
+*Verification gate (v0.2 — replaces the v0.1 wording).* A weight update is *supposed* to change
+outputs — "parity with the previous weights" is a vacuous check. What a weight update MUST pass
+before publication:
+
+1. *Structural parity* of the new weights against the float reference of the *new* checkpoint,
+   within stated tolerance (same check a base cartridge runs — the Minerva host-verification
+   pattern).
+2. *Task-metric regression gate* against the *previous* weights on a pinned, digest-identified
+   evaluation set: the task metric (WER for asr) must not degrade beyond a stated threshold.
+   The result — dataset digest, metric, new value, baseline value — is recorded in
+   `provenance.evaluation`. A degradation may be shipped only as an explicit, recorded waiver,
+   never silently.
+
+This also motivates a *second trust role*: the party allowed to sign a **base** cartridge (the
+publisher) is not necessarily the party allowed to sign a **weight update** for it (a
+training/aggregation service). A host's trust policy authorizes keys per role per cartridge
+`id` — the shape TUF uses for root vs. targets keys (OQ6). The worked example signs the base
+with a `publisher` key and a federated round-17 update with a separate `aggregator` key.
+
+=== Encrypted weights
+
+Signing proves authenticity and integrity; it does not provide confidentiality. For weights
+that are commercially sensitive, the manifest supports an optional `encryption` block on a
+weights artifact: an algorithm (e.g. AES-256-GCM) and a *key reference* — never the key itself
+— that the host resolves through its own provisioning (a secure element, a device key store).
+Encryption and signing are independent controls.
+
+This pattern already exists in this codebase for a different target: *SKaiNET's Minerva
+secure-MCU export* (`skainet-compile-minerva` in
+https://github.com/SKaiNET-developers/SKaiNET[SKaiNET]) provisions a device key
+outside the generated bundle, redacts key material from its manifest, and verifies inference
+against that key. The cartridge manifest generalizes exactly that pattern — external key,
+redacted from the shipped artifact, resolved by the host at load — to NPU/ORT/IREE cartridges.
+
+[#packaging]
+== Packaging, target resolution, and the eager tier
+
+*[drafted]* — the staging step itself is Phase-2 tooling (xref:roadmap.adoc[]).
+
+A cartridge is built per `(model, target)`; an application is usually built for *several*
+targets at once. Resolving "which cartridge artifact for which target" is a *build-time*
+concern — with one deliberate exception: requirements only a device can answer (driver
+version, free memory, accelerator presence) are checked at runtime via
+xref:abi.adoc#preflight[`ctg_preflight`], *before first load*, not discovered as an inference
+crash. The build step resolves and verifies what is knowable at build time; preflight verifies
+the rest where it is knowable.
+
+=== A build-time staging step is expected, not a shortcut
+
+Packaging needs an explicit build step (a Gradle task in the JVM/Android world) that per
+declared target: resolves the matching cartridge variant, verifies its manifest
+(<<integrity>>), stages its artifacts into the app bundle, and *generates the typed bindings*
+(xref:task-profiles.adoc#typed[typed facade]) from the descriptor. Precedents already working
+in SKaiNET: Minerva's gated host-verification task and the NPU cartridge builder's
+convert-then-verify flow. If a declared target has *no* compatible cartridge for a required
+capability, the build step is where that surfaces — as a build-time warning or failure, not a
+runtime crash on a user's device.
+
+An artifact marked `delivery` in the manifest (ADR-009: Google Play Asset Delivery, Apple
+On-Demand Resources/Background Assets) is verified here exactly like any other — the only
+difference is where the staging step *puts* it afterward: a platform asset pack instead of
+the main bundle. See xref:threat-model.adoc#shape-a-prime[threat-model.adoc, Shape A′] for what changes
+(and what doesn't) about verification once such an artifact lands on-device.
+
+=== Resolution and the eager tier
+
+Selection among candidate cartridges for a required capability, per target:
+
+1. *Hard constraints* — `task` matches; every required attribute is satisfied (required
+   language must be in `languages`, required streaming mode, …); `target` compatible with the
+   build target; `requirements` satisfiable.
+2. *Tier preference* — `execution_mode: native` for the target when available; otherwise
+   `execution_mode: eager` (a portable reference implementation, the universal fallback tier).
+   A tier downgrade is *substituted automatically but reported loudly* — a build warning, so a
+   silent perf downgrade stays visible.
+3. *Soft preferences* — measured quality, latency, footprint.
+
+`family` (v0.2) replaces v0.1's `fallback_of`. `fallback_of` made the *fallback* enumerate the
+natives it stood in for — so every new native cartridge forced an edit + re-sign + re-release
+of its fallback, and the worked example (Moonshine standing in for Whisper) violated the
+"same model family" definition anyway. Under v0.2:
+
+* `family` states *model-family identity* (e.g. `whisper-tiny`) — it scopes binary-plane
+  swaps and weight-update applicability. It does not encode fallback relationships.
+* Fallback is *not declared at all*; it is *resolved* — any same-`task` cartridge that passes
+  the hard constraints is a candidate, tier preference picks native over eager. Whether a
+  capability-diminished candidate (fewer languages, worse WER) is acceptable is exactly the
+  hard-constraint set the host declares — OQ9 becomes "which attributes does the host mark
+  required", a per-host policy, not a cross-cartridge annotation.
+
+[#developing]
+== Developing a cartridge
+
+*[working]* — the loop below is how the two existing cartridges were actually produced.
+
+[listing]
+----
+ 1. Author / import the model        SKaiNET DSL, a traced forward pass, or an ONNX import
+ 2. Gather REAL calibration data     representative inputs, not random — random data calibrates
+                                      to noise (Whisper precedent: real command-shaped audio
+                                      via FLEURS, the NPU builder's calibration step)
+ 3. Compile for the declared target  backend-specific: the NPU builder, an ORT export (CPU), an
+                                      IREE HAL bridge — produces the model artifact
+ 4. Assemble the package             runtime + model + side data + ABI implementation;
+                                      draft the descriptor with performance AND quality BLANK
+ 5. Verify                           (a) host-side parity: reference float output vs. compiled/
+                                          quantized output, within a stated tolerance
+                                      (b) on-device functional run on the real target hardware
+                                          (the NPU builder's on-device verify over adb)
+                                      (c) task-level quality on a pinned eval set (WER harness
+                                          for asr) — parity within tolerance does NOT measure
+                                          task quality; both are required
+ 6. Fill in performance + quality    from 5(b) and 5(c) — never invented, never a spec sheet
+ 7. Build the manifest and sign it   content-addressed digests + per-artifact licenses +
+                                      Ed25519 signature(s); production keys live in CI (OQ6)
+ 8. Publish                          via a hub, and/or as buildable source, and/or pre-built
+                                      internal — see Consuming below
+----
+
+Weight-only updates loop back into this cycle without restarting it: new weights re-enter at
+step 2 (new training data) or step 4, run the v0.2 verification gate from <<integrity>>
+(structural parity vs. the new float reference *plus* the task-metric regression gate vs. the
+previous weights), and produce a `weights-update` manifest pinned to the published base's
+digest — signed by whichever key is authorized for that role.
+
+[#consuming]
+== Consuming a cartridge
+
+*[drafted]*
+
+A consumer gets a cartridge one of three ways. All three resolve to the *identical* on-disk
+shape — descriptor + artifacts + manifest — so the staging step never needs to know which one
+supplied a given cartridge, and none of the three change what gets verified before load —
+only how the bytes got there and how much curation sits on top.
+
+=== Mode A — a cartridge hub *[direction]*
+
+A portal that *lists* cartridges (searchable by descriptor fields) and *serves* them:
+content-addressed artifact storage, a resolvable "channel" per cartridge id (`latest-stable`,
+`round-latest`) that a consumer resolves to one *immutable, signed digest* before ever trusting
+it — the channel name is never itself what's verified, the same discipline a container tag
+needs against `--digest` — and a directory of trust roots (OQ4, OQ6). For a commercially
+licensed cartridge, the hub is the entitlement gate: the descriptor stays publicly listed, but
+resolving the weights artifact's `key_ref` requires a valid entitlement — it gates bytes, not
+metadata.
+
+=== Mode B — clone a source repo and build it yourself *[working]*
+
+No hub required. A cartridge's source repo (the shape the two reference
+cartridges already follow) bundles the packaging step itself, so
+`git clone && <build>` produces a conformant package locally.
+
+This unlocks a trust path independent of signatures: *if the build is reproducible*, a consumer
+can rebuild from source and check that their own artifact digests match the digests in a
+manifest signed upstream, verifying the cartridge without trusting the channel it arrived
+through at all. Sign what a consumer can't feasibly rebuild (encrypted commercial weights, a
+large training run); let reproducibility carry the rest. Whether today's builders are actually
+deterministic end-to-end is OQ11.
+
+=== Mode C — pre-built, internal distribution *[drafted]*
+
+For a single company shipping to its own products, the *common* case: build once (through step
+7 — package + signed manifest) and drop the package, as-is, onto whatever artifact storage the
+company already operates — Artifactory/Nexus, a GitLab/GitHub Package Registry, an S3 bucket —
+no dedicated search UI, entitlement gate, or discovery portal. Consumers already know which
+cartridge id/version they need and pull it directly.
+
+This is Mode A with the discovery-and-entitlement layer removed, not a lesser version of it.
+What survives unchanged is the only part that matters for trust: the manifest and its
+signature(s) still get verified before load. For a single-publisher internal setting the trust
+store is trivial: pin the company's own key(s) once — baked into build images, provisioned on
+managed devices. This is the practical answer to OQ4 for the internal audience.
+
+[#selection]
+== Multiple cartridges → selection is the host's job
+
+*[drafted]*
+
+Once more than one cartridge exists for overlapping capability, a host must choose *which
+cartridge runs*. That routing is *application/adapter policy* — cartridges are peers that know
+nothing about each other; a cartridge must never contain "if not me, use the other one". The
+host routes on capability descriptors per the resolution rules in <<packaging>>.
+
+=== Two layers of compatibility
+
+"Can I replace Whisper with Moonshine?" splits into two questions with different answers —
+the <<two-planes,two planes>> made concrete.
+
+*Cartridge-level (binary-plane) compatibility rarely holds across model families, and isn't
+the goal.* The Whisper-on-NPU cartridge and the Moonshine engines are all `task: asr`, but their io
+shapes differ structurally: batch 4 s log-mel window vs. streaming PCM chunks; `[en, de]` vs.
+`[en]`; different tokenizers. None of that is a bug — the descriptor exists so the difference
+is *machine-readable and honest*, not so unrelated cartridges fake an identical tensor API.
+
+*Profile-plane compatibility is the actual swap point.* The application never talks to a
+cartridge's raw io; the adapter absorbs the difference behind one stable, per-task interface —
+the xref:task-profiles.adoc[task profile]. In the first consumer app today both adapters implement the same
+closed voice-engine contract and the app discovers whichever is wired in by reflection; the public
+`asr/v1` profile formalizes exactly that seam without the app-specific residue.
+
+*What a swap costs.* The profile hides the shape difference; it cannot hide a *capability*
+difference. Moving from Whisper to an English-only streaming engine means losing German and
+changing the UX from one final transcript to incremental results — a real product change,
+surfaced as a descriptor diff and accepted explicitly, never silently.
+
+== Existing engines and their cartridge status
+
+*[working]* — corrected in v0.2; the v0.1 text conflated the two Moonshine engines.
+
+[cols="3,3,3",options="header"]
+|===
+| Engine | Runtime / target | Cartridge status
+
+| *Whisper-tiny ASR / vendor NPU* — `asr-whisper-tiny-npu`
+| vendor NPU, 32-bit ARM SoC / armeabi-v7a; `libwhisper-npu.so` + C API + NPU blob
+| Working cartridge in fact; RTF < 1 on the device; en (+ de code path, de models not yet
+  committed). ABI + licensing retrofit = roadmap Phase 3.
+
+| *Moonshine streaming ASR / ORT* — `asr-moonshine-ort-cpu` (`:moonshine` + `:moonshine-data`)
+| ONNX Runtime, CPU (v7a/v8a/x86_64); `libmoonshine.so` + `.ort`; Silero VAD inside
+  (`endpointing: signal`)
+| Working, genuinely app-agnostic (`:moonshine-data` has zero app types). `execution_mode:
+  eager` on the 32-bit device (RTF ≈ 2 there — aarch64-only SIMD; ≈ 0.25 on 64-bit; both stated).
+
+| *Moonshine v2 streaming ASR / IREE* — SKaiNET-DSL engine (`libmoonshine_iree.so`, `.vmfb`)
+| IREE/Vulkan (Mali GPU), armeabi-v7a; no VAD (`endpointing: none`, host-driven stop)
+| The engine actually wired into the first app's Moonshine adapter today — via a vendored
+  `MoonshineStream.kt`, *not* via the ORT cartridge. Cartridge-shaped but not yet packaged as
+  one; a candidate for promotion.
+|===
+
+Important correction (v0.2): the first app's Moonshine adapter does **not** consume the
+ORT Moonshine cartridge — the streaming feature moved to the SKaiNET/IREE
+Moonshine v2 engine for performance on the 32-bit device; the ORT engine is superseded, its
+architecture carried over. The ORT cartridge remains the
+eager-tier ASR cartridge and the VAD-bearing exemplar.
+
+The NPU vision demos (MobileNetV2, YOLOv8) are cartridge-shaped and could
+be promoted the same way.
+
+== What is _not_ a cartridge
+
+*[working]*
+
+* *A raw model file* (`.onnx`, GGUF) — no runtime, doesn't run itself.
+* *A framework* — SKaiNET itself authors and runs models; it is the universe the cartridge
+  lives in, not a cartridge.
+* *A compiler / build tool* — the NPU cartridge builder _produces_ cartridge model artifacts; it is not one.
+* *An app engine that embeds product logic* — that is an _adapter_, not a cartridge.
+
+== Relationship to the rest of the SKaiNET universe
+
+*[working]*
+
+[listing]
+----
+ SKaiNET (KMP tensor framework)         author / import / run models; calibration + execution
+   │   model + export (ONNX / GGUF / HLO) + calibration data / observed tensors
+   ▼
+ Cartridge build  ── NPU builder · ORT · IREE HAL bridges ──     HW-specific compile + package
+   │
+   ▼
+ Cartridge (public, HW-native, app-agnostic)  — exports the Runtime ABI
+   │
+   ▼
+ Adapter (app-specific, may be closed)  →  Application
+----
+
+* *SKaiNET* is where models are defined, imported, and run, and where representative tensors /
+  calibration come from. It is also the source of the *type vocabulary* the typed cartridge
+  facade mirrors (xref:task-profiles.adoc#typed[]). See https://skainet-developers.github.io/SKaiNET/[the SKaiNET documentation].
+* *The NPU builder and the IREE/ORT backends* are the compile/package side — the makers of cartridges.
+* *The cartridge* is the packaging that makes any of the above consumable by an application.
+* *The adapter* (e.g. the first app's ASR engines) is the app-specific consumer.
+
+== Open questions
+
+*[drafted]* — statuses updated for v0.2; resolved items point at their ADR.
+
+* *OQ0 — Runtime ABI.* **Resolved (drafted)** by xref:abi.adoc[] / ADR-002. Was the spec's
+  largest hole: package metadata was normative, the call-level contract wasn't.
+* *OQ1 — Descriptor schema.* First formal draft shipped in v0.1; v0.2 adds `model`, `quality`,
+  `family`, `endpointing`, `methodology`, `spec_version`. Remaining: per-task attribute
+  vocabularies beyond `asr`.
+* *OQ2 — Packaging format(s).* Open. Likely per-platform (AAR, `.so`+assets, KMP artifact),
+  with a common descriptor+manifest.
+* *OQ3 — Naming & versioning.* `<task>-<model>-<runtime>-<target>` + semver, used throughout.
+  Still to formalize: what constitutes a breaking (major) change — an io change is; is a
+  language drop?
+* *OQ4 — Registry.* Settled for internal distribution (Mode C: reuse existing artifact
+  storage). Open for an external/multi-tenant audience.
+* *OQ5 — Conformance.* Now specifiable (the ABI gives a conformance test something to invoke):
+  `ctg-conform` is Phase-2 tooling — schema-validate, verify manifest, dlopen, ABI version
+  check, smoke inference against bundled vectors.
+* *OQ6 — Key management / trust roots.* Publisher vs. trainer/aggregator keys per role per
+  cartridge id — likely a TUF-shaped root/targets split. Note v0.2 threat model adds the
+  missing base-cartridge anti-rollback concern (TUF snapshot/timestamp shape) to this question.
+* *OQ7 — Weight-update semantics.* Full replacement blob vs. delta/adapter (LoRA); fixed
+  convention or per-cartridge choice.
+* *OQ8 — Revocation.* Compromised key, bad round, withdrawn version, on hosts that may be
+  offline. Parked (`direction`, see roadmap).
+* *OQ9 — Fallback tolerance.* Reframed by v0.2 resolution rules: fallback is resolved, not
+  declared; tolerance = which attributes the host marks *required*. Remaining: a sensible
+  default required-set per task profile.
+* *OQ10 — Commercial licensing field(s).* Formalize the closed/commercial shape of `license` +
+  entitlement pointers. v0.2 adds the concrete worked case (Moonshine Community License:
+  revenue-capped commercial use, display duty) that the field structure must be able to carry.
+* *OQ11 — Reproducible builds.* Whether the NPU builder / an ORT export / an IREE compile can be made
+  bit-for-bit deterministic — prerequisite for the Mode-B trust path to mean anything beyond
+  "I trust my own laptop."
+* *OQ12 — Task profiles.* **Resolved (drafted)** by xref:task-profiles.adoc[] / ADR-005 for
+  `asr/v1` and ADR-008 for `yolo/v1` (detection); `embedding` and `tts` remain open.
+* *OQ13 — On-demand delivery failure as a first-class capability?* ADR-009 (platform asset
+  delivery) leaves open whether an `on-demand`-timed artifact that never arrives (offline
+  device, user declines) deserves descriptor-level vocabulary of its own, or stays a plain
+  application-level failure — <<selection,Multiple cartridges → selection>>'s existing
+  hard-constraint framing may already be enough.
+
+[#changelog]
+== Changelog
+
+*v0.3 (2026-09-09)* — descriptor `flavors` (ADR-014): one package can now cover several
+independently-addressable, independently-measured identities (a bundled language, a runtime
+tier, an ABI) sharing one task/family/io/license identity, instead of needing one descriptor
+file per variant. Migrated in the same pass: Moonshine's en/de descriptors and
+FunctionGemma's Vulkan/CPU descriptors, each collapsed from two files to one;
+the atlas generator updated to expand `flavors` into one doc per
+identity. ADR-007 (structured output + LLM model metadata) also flipped proposed → accepted
+this pass.
+
+*v0.2 (2026-08-25)* — Runtime ABI introduced as a MUST (OQ0, xref:abi.adoc[]); two-plane
+replaceability made normative; native-speed MUST made conditional on `execution_mode`
+(eager tier is contract-compliant); endpointing ruling: signal-level VAD allowed as data, never
+as decisions (`attributes.endpointing`); `fallback_of` replaced by `family` + resolution rules;
+descriptor v0.2 (`model`, `quality` — mandatory for asr, `methodology`, `requirements.os`,
+`spec_version`); manifest v0.2 (per-artifact `license` + `derived_from`, effective license,
+`provenance.evaluation`); weight-update verification gate corrected (parity-vs-previous
+replaced by float-parity + task-metric regression gate); licensing Rule 2 (license composition)
+added with worked cases; threat model split out (xref:threat-model.adoc[]) with deployment
+shapes and verification placement; task profile `asr/v1` drafted (xref:task-profiles.adoc[]);
+two-Moonshine-engines correction; maturity tags added; internal device IP scrubbed from
+examples; ADR log started.
+
+*v0.1 (2026-07)* — initial concept definition, contract, descriptor + manifest first drafts,
+signing example, consumption modes A/B/C, compatibility layers, OQ1–OQ12.

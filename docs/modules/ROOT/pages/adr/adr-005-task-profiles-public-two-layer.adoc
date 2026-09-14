@@ -1,0 +1,18 @@
+= ADR-005 — Task profiles are public; asr/v1 is Flow-core + callback bridge
+
+*Status:* accepted (2026-08-25, spec v0.2). Resolves OQ12 for `asr`. +
+*Context:* The de-facto ASR contract is the first consumer app's closed voice-engine interface. A task profile is by
+construction the interface *public* cartridge adapters implement — if it stays app-internal,
+every public cartridge depends on one product's closed code (a licensing paradox), and no
+second consumer can exist. The native CLI runner, the designated consumer #2, has no engine interface at
+all (concrete runner classes), so it needs the same abstraction anyway. +
+*Decision:* Task profiles live in this repo as the public, versioned KMP artifact
+`cartridge-task-profiles`. `asr/v1` is the ASR-only subset of that app interface merged with
+the CLI runner's `AsrEvent` vocabulary, owning all of its own types, with two layers in one
+artifact (user decision): a Flow-based core contract, plus a provided callback bridge so
+callback-structured consumers don't each reinvent the bridging. App residue (command fields, NLU mode,
+trigger metadata, parallel evaluation) stays in the app's closed adapter layer. +
+*Consequences:* profile-plane swaps become a compile-against-profile operation; both app
+adapters and the CLI runners converge on one interface (roadmap Phases 3–4); extracting
+the interface out of the app is an explicit negotiation with that codebase, now on the roadmap
+rather than implicit.

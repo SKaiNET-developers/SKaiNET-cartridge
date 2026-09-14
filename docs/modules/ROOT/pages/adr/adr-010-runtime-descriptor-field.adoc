@@ -1,0 +1,23 @@
+= ADR-010 — A `runtime` descriptor field names the execution backend
+
+*Status:* proposed (2026-08-30). +
+*Context:* `execution_mode: native|eager` is the only backend-tier axis the v0.2 descriptor
+carries. The *actual* backend — SKaiNET eager CPU, IREE, ONNX Runtime, a vendor NPU SDK — is encoded only
+informally: in the `id` naming convention (`asr-moonshine-**ort**-cpu`) and as free text in
+`target.hardware` (`IREE-arm64-v8a`). The resolver therefore cannot express a real preference
+("prefer IREE when Vulkan is present", "never schedule two NPU cartridges together" —
+Phase 5 tenancy needs the same fact), conformance tooling cannot pick backend-specific smoke
+checks, and the first LLM cartridge family (`functiongemma-270m`: one SKaiNET-eager sibling,
+two IREE siblings) has no declared way to say what actually runs inside each package. +
+*Decision:* Add an optional (RECOMMENDED, required from spec v0.3) top-level descriptor field
+`runtime`, a closed object: `name` — a kebab-case identifier from an open, conventions-listed
+vocabulary (`skainet-eager`, `iree`, `ort`, `vendor-npu`, `llama-cpp`, …) — and optional `version`
+(the backend's own version string). `runtime` states a fact about *this* package's insides; it
+is NOT a resolver key the host may hard-require (that stays `task` + `target` + `attributes` +
+tier preference per ADR-006) but IS available to soft preferences and diagnostics. The `id`
+convention keeps embedding the runtime for human readability; `runtime.name` is the
+machine-readable source of truth and `ctg-conform` SHOULD warn when the two disagree. +
+*Consequences:* `execution_mode` stays the only *tier* axis (unchanged resolution semantics);
+descriptors gain one self-describing fact; the Phase-2 staging plugin can log "eager fallback
+via skainet-eager 0.51" instead of parsing id strings; Phase-5 accelerator-tenancy arbitration
+gets its backend identity without a schema break later. Existing v0.2 descriptors stay valid.

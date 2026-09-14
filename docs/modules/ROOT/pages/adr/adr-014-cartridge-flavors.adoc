@@ -1,0 +1,78 @@
+= ADR-014 — `flavors`: additional measured variants inside one descriptor
+
+*Status:* accepted (2026-09-09, spec v0.3). Extends the descriptor only; no ABI, manifest, +
+or threat-model change. Supersedes this ADR's own first draft, which proposed making +
+`target.abi` a string-or-array `oneOf` — dropped once the general mechanism below turned out +
+to subsume it with no special-cased type union. Landed as its own `spec_version` bump +
+(0.2 → 0.3) rather than waiting to bundle with ADR-010/ADR-007-adjacent work, since +
+`flavors` was already validated end to end (two real cartridges migrated, a consumer tool +
+updated) before acceptance — see Consequences. +
+*Context:* Two shipped cartridges already package more than the v0.2 descriptor's "one +
+target/one identity" model can name in one file. Moonshine ASR ships one AAR with two +
+languages (`en`/`de`) behind two descriptors +
+(`asr-moonshine-iree-vulkan-{en,de}.descriptor.json`); `nlu-functiongemma-270m-iree-vulkan` +
+ships one AAR with two runtime tiers (Vulkan/valhall4, `local-task` CPU) behind two more. +
+A field-by-field diff of Moonshine's own two descriptors shows exactly what's shared and +
+what isn't: `task`, `family`, `modality`, `execution_mode`, all of `io`, all of `target` +
+(`hardware`/`abi`/`accelerator` — identical for both languages here), `requirements`, the +
+top-level `license`, `model.name`/`params`, `attributes.streaming`/`endpointing`, +
+`spec_version`, and `version` are byte-identical across the pair. What genuinely differs is +
+`attributes.languages` itself, `model.checkpoint`/`variant`/`upstream` (en and de are +
+different upstream checkpoints — `moonshine-ai/moonshine-streaming-tiny` vs +
+`...-streaming-tiny-de`, ADR-004-relevant provenance, not cosmetic), and `performance`/ +
+`quality` (rtf 0.34 vs 0.356, different measurement dates, different harness notes). +
+`attributes.languages` was already designed as an array — its own schema example is +
+literally `["en", "de"]` — so a single descriptor covering both was clearly intended +
+*somewhere*; what actually blocked merging is `model` and `performance`/`quality` being +
+singular objects with no way to say "these values hold for `en`, these other values hold +
+for `de`." Moonshine's own `DescriptorValidationTest.idAndVersionPairsAreUniqueAcrossDescriptors` +
+records a considered rationale for the current split ("language identity lives in `id`, +
+matching how HuggingFace names a language-restricted variant as its own repo id") — that +
+reasoning is sound for *why one string field can't carry two languages*, but doesn't +
+establish that two *entire descriptor files* are the only fix; it was reaching for a +
+mechanism this schema didn't yet have. +
+*Decision:* Add an optional top-level array field `flavors`. The existing top-level fields +
+remain exactly what they are today and stay the default flavor unchanged — a host that has +
+never heard of `flavors` still resolves the descriptor correctly, seeing one cartridge, the +
+same as before this ADR. Each entry in `flavors` is `{ "id": <string, required, distinct +
+from the top-level id and every other flavor's id>, plus zero or more of "attributes", +
+"model", "performance", "quality", "target", "requirements" }`, each reusing that field's +
+existing top-level sub-schema verbatim (`$ref`) — `requirements` was added once +
+FunctionGemma's own diff showed why it has to be overridable too: +
+`requirements.needs_accelerator` is `true` for its Vulkan tier and `false` for its CPU +
+tier, a genuinely host-routing-relevant fact, not cosmetic. +
+`spec_version`/`id`(base)/`version`/`family`/`execution_mode`/`license`/`modality`/`task`/`io` +
+stay off that list — they define what makes this the same cartridge (ADR-006's binary-plane +
+identity); a flavor needing one of those to differ would be a different cartridge, not a +
+flavor. A flavor entry's field, when present, *replaces* the base +
+descriptor's field of the same name in full for that flavor's identity — no deep merge. If +
+a flavor needs a sub-field the base already carries unchanged (Moonshine's German flavor +
+still has `attributes.streaming: true`), it repeats it; nothing is inferred by absence. This +
+trades some verbosity for a merge rule with zero ambiguity to implement or audit — matching +
+this schema's existing preference for explicit fact over inferred convenience (ADR-006's +
+"fallback is resolved, not declared" made the same trade the other direction: never let a +
+descriptor's *absence* of a fact stand in for a decision). A flavor is exactly as +
+independently addressable and independently measured as its own descriptor file would be — +
+`ctg-conform` treats `\{base} ∪ {each flavor}` as the full set of identities this package +
+exposes, applying every existing per-descriptor rule (mandatory `quality` for `task=asr`, +
+`performance.measured_on` falsifiability, etc.) to each one. +
+*Consequences:* Moonshine's two descriptor files collapse into one — `en` (already the +
+`MoonshineStream.DEFAULT_LANGUAGE`) becomes the base, `de` becomes a `flavors` entry +
+carrying its own `id`, `attributes.languages`, `model.{checkpoint,variant,upstream}`, and +
+`performance`/`quality`. FunctionGemma's Vulkan/CPU split becomes one descriptor, Vulkan as +
+base, with a CPU flavor overriding `target.accelerator`, `model.variant`, `performance` +
+(4x slower), `quality.measured_on`, `requirements.needs_accelerator` (`false`, no GPU +
+needed), and the `attributes` sub-fields that actually differ (`runtime_hint.hal`, +
+`memory_rss_mb`, `warm_up_ms`; `warm_up_first_run_ms` is Vulkan-only, simply omitted from +
+the CPU flavor's `attributes`). `DescriptorValidationTest` gains a rule +
+for the merged shape: `bothLanguageVariantsArePresentAndDistinct` becomes "checks the union +
+of base + flavors," `idAndVersionPairsAreUniqueAcrossDescriptors` becomes "checks the union +
+of base id + flavor ids across the single file" — same guarantees, checked over one file +
+plus its `flavors` array instead of a directory listing. Nothing about how graphs are +
+compiled, packaged, or named changes — this is purely a descriptor-file-count and +
+identity-declaration change. `spec_version` bumps to `0.3`; every existing descriptor across +
+every cartridge repo (not only the two with actual `flavors` entries) gets its +
+`spec_version` field updated and its pinned schema copy re-synced, since `spec_version` is a +
+schema `const` — a hard compatibility boundary, not a per-field opt-in. `cartridge-port-map-kmp` +
+(the atlas generator) was updated in the same pass to expand `flavors` into one doc per +
+identity, closing the loop from proposal to a working consumer before acceptance.

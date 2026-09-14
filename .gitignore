@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors / IDEs
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.iml
+*.swp
+*.sw?
+
+# Gradle / Kotlin
+.gradle/
+.kotlin/
+build/
+
+# Antora
+.cache/
+docs/.cache/
+docs/build/
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.*
+!.env.example
