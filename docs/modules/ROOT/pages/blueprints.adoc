@@ -1,0 +1,328 @@
+= Cartridge blueprints
+:navtitle: Blueprints
+
+[.lead]
+A *blueprint* is everything needed to build a cartridge except what has to be downloaded to do
+it. It lets a cartridge be open source when its weights cannot, or should not, live in a source
+repository — and it makes the build loop of xref:index.adoc#developing[Developing a cartridge]
+machine-readable.
+
+****
+*Spec version:* {spec_version} — introduced in v0.4 (SKEEP-007,
+xref:adr/adr-015-cartridge-blueprints.adoc[ADR-015]). +
+*Status:* normative draft; requirement keywords as in RFC 2119; maturity tags as on
+xref:index.adoc[the concept page]. +
+*Schemas:* `examples/cartridge-blueprint.schema.json`,
+`examples/materialization-profile.schema.json`; worked pair
+`examples/nlu-functiongemma-270m-iree.blueprint.json` +
+`examples/nlu-functiongemma-270m-iree.vulkan-arm64.profile.json`. +
+*Guides:* xref:tutorials/build-cartridge-from-blueprint.adoc[Build a cartridge from a blueprint],
+xref:how-to/materialize-privately.adoc[Materialize privately],
+xref:explanation/blueprint-vs-cartridge.adoc[Blueprint vs. cartridge].
+****
+
+== Why blueprints exist
+
+*[drafted]*
+
+A cartridge is self-contained: it *bundles* its runtime and its model artifacts, pinned by digest
+in a signed manifest (xref:index.adoc#integrity[Integrity]). That is the right shape for something
+an application loads. It is the wrong shape for a public source repository:
+
+* *Weights are large and not ours to host.* They have a publisher, a license, and often terms
+  that must be accepted before download. Re-hosting them in a repository copies the bytes and
+  silently drops the terms.
+* *Compiled artifacts are target-specific.* A `.vmfb` for one GPU architecture is useless for
+  another; committing every combination does not scale, committing one hides the others.
+* *The build loop was prose.* Until v0.4 the spec described how a cartridge is produced in
+  eight numbered lines of text. Where the weights come from, which exact revision, how they are
+  converted and quantized, with which tool versions — none of it was recorded anywhere a machine
+  or a reviewer could check.
+
+A blueprint fixes all three by separating *what is open* from *what is fetched and built*.
+
+== Terms
+
+*[drafted]*
+
+[cols="1,4",options="header"]
+|===
+| Term | Meaning
+
+| *Blueprint*
+| The open part of a cartridge: API and runtime *source*, a descriptor template, and a recipe —
+  pinned sources, a pinned toolchain, targets, ordered steps. Described by one `blueprint.json`.
+
+| *Materialization*
+| Executing a blueprint's recipe for one target: fetch, convert, quantize, export, compile,
+  build the runtime, measure, pack, sign. Its result is a cartridge.
+
+| *Materialization profile*
+| What the materializing party supplies: target, flavors, the cartridge's version, license
+  acceptances, mirrors, declared inputs, measurements, signing identity.
+
+| *Materializer*
+| The tool that executes a blueprint against a profile. The reference implementation is the
+  Gradle plugin `sk.ainet.cartridge.blueprint`; the spec does not depend on it.
+
+| *Materialized cartridge*
+| The result. A cartridge in every sense of xref:index.adoc[the concept page] — same
+  `pack_dir`, same descriptor, same signed manifest, same ABI — whose manifest additionally
+  records which blueprint it came from.
+|===
+
+A blueprint is to a cartridge what a source package with a lockfile is to a binary: not a
+lesser cartridge, and not loadable. A host never sees a blueprint.
+
+== The blueprint contract
+
+*[drafted]*
+
+=== A blueprint MUST
+
+* *Pin every source* by an immutable revision at its publisher *and* by the SHA-256 of every
+  file taken from it. A branch name is not a revision; a URL without a digest is not a pin.
+* *State every source's license and redistribution class* — `allowed`, `restricted`, or
+  `acceptance-required` — so that what a materializer may do with the result is known before
+  anything is downloaded (<<licensing>>).
+* *Pin its toolchain*: every tool a step names, at an exact version. Version ranges are not pins.
+* *Carry a descriptor template* from which, together with the fields materialization resolves, a
+  schema-valid capability descriptor results (<<descriptor>>).
+* *Declare its inputs*: anything it needs that is host- or organization-specific — a tool
+  catalog, a vocabulary, a calibration set — is declared as a named input with a schema, and
+  supplied by the profile. This is how the app-agnosticism rule of
+  xref:index.adoc[the cartridge contract] carries over: product content never enters a
+  blueprint, not even as an example.
+* *Map every product to a manifest artifact*: role, `pack_dir` path, and the sources and inputs
+  it is `derived_from`. License obligations trace through builds along exactly these edges
+  (xref:adr/adr-004-license-composition.adoc[ADR-004]).
+* *Ship the source of everything it builds* — including the native runtime that implements the
+  xref:abi.adoc[Runtime ABI]. The runtime is built at materialization; it is not downloaded.
+
+=== A blueprint MUST NOT
+
+* *Contain artifacts of role `weights`, `model`, or a built `runtime`* — no checkpoints, no
+  compiled modules (`.vmfb`, `.ort`, NPU blobs), no parameter archives, no prebuilt native
+  libraries. Small *test fixtures* (a golden input and its expected output) are not model
+  artifacts and are allowed.
+* *Contain measured numbers as descriptor content.* `performance` and `quality` are properties
+  of materialized artifacts on a device (<<descriptor>>).
+* *Encode license acceptance.* A blueprint can say acceptance is required; only a profile can
+  record that someone accepted.
+* *Name a device, a fleet, a registry, or a customer.* Targets are described by hardware class
+  and ABI. Anything more specific belongs to a profile.
+
+[#anatomy]
+== Anatomy of `blueprint.json`
+
+*[drafted]* — schema: `examples/cartridge-blueprint.schema.json`.
+
+[listing]
+----
+spec_version, kind   : "0.4", "blueprint"
+id, version          : <task>-<model>-<runtime> (no target) + semver of the RECIPE
+license              : license of the blueprint's own code and recipe — not of any cartridge
+descriptor_template  : descriptor minus what materialization resolves (see below)
+sources[]            : name, role, uri (hf://… | https://…), revision, files[{path, digest}],
+                       license, license_url, redistribution
+toolchain{}          : tool name → exact version (+ coordinates or container image)
+targets[]            : id, target{hardware, abi, accelerator}, requirements, params
+flavors[]            : optional — id, sources[], descriptor_overrides          (ADR-014)
+inputs[]             : name, role, required, schema — supplied by the profile
+steps[]              : id, kind, tool, uses[], produces[], per_target, params  — in order
+outputs[]            : from (a step product), role, pack_dir path, derived_from[]
+verification[]       : parity | golden | task-metric | conformance checks that gate packing
+reference_measurements[] : what the authors measured — an expectation, never descriptor content
+----
+
+Step kinds are a closed vocabulary so that a reader — and a license or security reviewer — can
+tell what a recipe does without running it:
+
+[cols="1,4",options="header"]
+|===
+| `kind` | What it may do
+
+| `fetch` | Download sources and verify their digests. Nothing else touches the network.
+| `convert` | Change format or layout. Numerics change only by an explicit dtype cast.
+| `quantize` | Change numeric precision. What is and is not quantized is stated in `params`.
+| `export` | Turn a model into a compiler input (StableHLO, ONNX).
+| `compile` | Turn a compiler input into a target artifact.
+| `build-runtime` | Build the native runtime library from the blueprint's source.
+| `measure` | Produce `performance` / `quality` on the target from the materialized artifacts.
+| `pack` | Assemble the `pack_dir` (xref:adr/adr-012-pack-dir-layout.adoc[ADR-012]) and the manifest.
+| `sign` | Sign the manifest with the materializing party's key.
+|===
+
+[#materialization]
+== Materialization
+
+*[drafted]* — profile schema: `examples/materialization-profile.schema.json`.
+
+Given a blueprint and a profile, a materializer:
+
+. *Validates* both against their schemas, and checks that the profile's `blueprint.version`
+  (and `digest`, when given) match the blueprint in hand.
+. *Checks licenses before fetching.* For every source the chosen target and flavors need: if
+  its `redistribution` is `acceptance-required` and the profile has no matching
+  `license_acceptance` entry, it MUST stop. It MUST NOT offer to accept on anyone's behalf.
+. *Fetches* each source from its `uri`, or from the profile's mirror for that source, and
+  verifies every file's digest. A mirror changes where bytes come from, never which bytes. A
+  digest mismatch is fatal, not a warning.
+. *Validates inputs* against the schema the blueprint declares for them.
+. *Runs the steps* in order, with exactly the pinned tool versions. A materializer that
+  substitutes a tool version MUST record the substitution in provenance and MUST NOT claim the
+  blueprint's `verification` results.
+. *Runs the blueprint's `verification` checks.* A failed check stops materialization before
+  anything is packed.
+. *Resolves the descriptor* (<<descriptor>>).
+. *Computes the effective license* from the licenses of every source and input that an output is
+  `derived_from` (<<licensing>>).
+. *Packs* the `pack_dir` and writes a manifest of `kind: cartridge` whose `provenance` names
+  the blueprint (<<provenance>>).
+. *Signs* the manifest with the key the profile names.
+
+The result MUST be indistinguishable, to a host, from a cartridge produced any other way: same
+`pack_dir` layout, same schemas, same xref:abi.adoc[ABI]. Everything in
+xref:index.adoc#integrity[Integrity] and xref:threat-model.adoc[the threat model] applies
+unchanged. Blueprints add no new runtime surface.
+
+[#descriptor]
+=== Resolving the descriptor
+
+A descriptor template leaves out exactly the fields a blueprint cannot know:
+
+[cols="1,3",options="header"]
+|===
+| Field | Resolved from
+
+| `spec_version` | the spec version the materializer implements
+| `id` | `<blueprint id>-<target id>`, the target's `cartridge_id`, or the profile's `cartridge.id`
+| `version` | the profile's `cartridge.version` — the materializing party owns cartridge versions
+| `target` | the chosen blueprint target
+| `license` | computed (<<licensing>>)
+| `performance`, `quality` | *measured* — a `measure` step, or the profile's `measurements`
+| `flavors` | the blueprint flavors the profile selected, each with its own measurements
+|===
+
+The honesty rule of xref:index.adoc#anatomy[the descriptor] is not relaxed by a build recipe:
+`performance` and `quality` in a materialized descriptor MUST come from a run of *those
+materialized artifacts* on the device `measured_on` names. A blueprint MAY publish
+`reference_measurements`; they tell a materializer what to expect and MUST NOT be copied into a
+descriptor. Two parties materializing the same blueprint for the same target will usually report
+different numbers, and both are true.
+
+[#licensing]
+=== Licensing
+
+Rule 2 of xref:index.adoc#licensing[Licensing] — the effective license must fulfill every
+upstream license — is evaluated *at materialization*, because that is the first moment the full
+set of upstreams is known: the sources actually used (a flavor may bring a differently licensed
+checkpoint), plus every supplied input.
+
+* The blueprint's own `license` covers its code and recipe. It says nothing about any
+  cartridge. An MIT blueprint routinely materializes into a cartridge whose effective license is
+  a model publisher's terms, or `proprietary` once a private input is added.
+* `redistribution` tells the materializing party what it may do with the *result*: `allowed` —
+  the cartridge may be passed on under the computed license; `restricted` — only under
+  conditions the materializer must check for itself (a revenue cap, a display duty, a field of
+  use); `acceptance-required` — access itself is conditional, and the result inherits the terms.
+* The worked constraint on the concept page is the model case: Moonshine's English checkpoints
+  are MIT, its non-English ones are under a revenue-capped community license. A Moonshine
+  blueprint therefore marks the German flavor's source `restricted`, and a materialization that
+  selects that flavor carries the obligation into its manifest — visibly, instead of nowhere.
+
+[#provenance]
+=== Provenance
+
+The manifest of a materialized cartridge carries two additional, optional `provenance` members
+(manifest schema v2, additive):
+
+[listing]
+----
+provenance.blueprint        : id, version, digest (sha256 of blueprint.json),
+                              source { repo, commit | coordinates }
+provenance.materialization  : profile_digest, target, flavors[],
+                              toolchain { name → version actually used }, materializer
+----
+
+`provenance.inputs` keeps its existing meaning and now has an obvious content: one entry per
+fetched source file and per supplied input, by digest. Together these make the lineage
+*source bytes → recipe → artifact bytes* auditable from the manifest alone.
+
+*Who signs.* The materializing party, with its own key. A blueprint's authors vouch for a
+recipe; only whoever ran it can vouch for the bytes that came out. A host's trust store is
+therefore keyed by who materialized, exactly as it is today by who published.
+
+== Distributing and consuming blueprints
+
+*[drafted]*
+
+A blueprint is source, and travels like source:
+
+* *As a repository* — `git clone`, then materialize. This is consumption
+  xref:index.adoc#consuming[Mode B] with its recipe made explicit.
+* *As a published artifact* — the blueprint's code as a library plus its `blueprint.json`,
+  consumed by version from a package repository together with the materializer plugin. No fork
+  and no submodule: a consumer's repository contains a profile and its inputs, nothing else.
+
+Either way the materialized cartridges are distributed by the existing modes — a hub (A) or an
+internal artifact store (C).
+
+[#private]
+=== Downstream and private materialization
+
+*[drafted]*
+
+The common case for an organization shipping products: the blueprint is public, the cartridge is
+not. The organization's repository holds
+
+* a *profile* — its target, the flavors it ships, its cartridge version line;
+* *mirrors* for the sources, so builds do not depend on a public endpoint;
+* *license acceptances* made by its legal entity;
+* *inputs* — its tool catalog, its vocabulary, its calibration recordings;
+* its *signing identity*, and the publishing configuration for its own artifact store.
+
+It materializes in its own CI and distributes by Mode C. Nothing flows back into the blueprint,
+and nothing needs to: every one of those items is declared by the blueprint as something a
+profile supplies. If a private materialization needs a change to the *recipe* — a new target, a
+different quantization — that change is public by nature and belongs upstream, as a new
+blueprint version.
+
+The effective license of such a cartridge follows from its private inputs like from any other
+upstream: typically `proprietary`, with the public sources' obligations still carried in the
+manifest.
+
+== Reproducibility
+
+*[direction]*
+
+A blueprint is the precondition for xref:index.adoc[OQ11], not its answer. With sources and
+toolchain pinned, two materializations for the same target *can* be compared byte for byte;
+whether today's exporters and compilers are deterministic end to end is still open. When they
+are, a blueprint MAY publish expected artifact digests per target, and the Mode B trust path —
+rebuild and compare, instead of trusting a signature — becomes real. Until then, a materialized
+cartridge is trusted because of who signed it.
+
+== What a blueprint is not
+
+*[drafted]*
+
+* *Not a cartridge.* It cannot be loaded, has no manifest, and makes no performance claim.
+* *Not a model card.* It describes how artifacts are produced, not how a model was trained.
+* *Not a build service.* xref:index.adoc[Cartridge as a service] is a place to *run*
+  materializations; a blueprint is what it would run.
+* *Not a weights-update mechanism.* A `weights-update` manifest still pins a base *cartridge* by
+  digest. A blueprint whose source revision moves is a new blueprint version, and materializing
+  it yields a new base.
+
+== Open questions
+
+*[drafted]*
+
+* *OQ-B1 — Step vocabulary.* Closed today. Whether backends need an extension mechanism, or new
+  kinds are added by spec revision only.
+* *OQ-B2 — Expected digests.* The shape of per-target reproducibility claims, once OQ11 allows them.
+* *OQ-B3 — Signed blueprints.* A blueprint is pinned by digest in the profile; whether blueprint
+  releases also need publisher signatures, and how that composes with the trust roles of OQ6.
+* *OQ-B4 — Measurement on hardware the materializer does not own.* Whether a third party's
+  measurement can be referenced from a descriptor, and with what attribution.

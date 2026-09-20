@@ -1,0 +1,196 @@
+= SKEEP-007: Cartridge blueprints
+:navtitle: SKEEP-007 — Cartridge blueprints
+:description: Proposal to add blueprints to the cartridge specification: the open, weight-free recipe a cartridge is built from, and materialization, the profile-driven build that turns one into an ordinary signed cartridge.
+
+Status: Draft +
+Audience: cartridge-spec maintainers; authors of cartridges, adapters and cartridge tooling; anyone who wants to publish a cartridge without redistributing its weights +
+Created: 2026-09-20 +
+Tracking issue: https://github.com/SKaiNET-developers/SKaiNET-cartridge/issues/6[SKaiNET-cartridge#6] +
+Decision record: xref:adr/adr-015-cartridge-blueprints.adoc[ADR-015] +
+Numbering: SKEEP numbers come from the https://skainet-developers.github.io/SKaiNET/[SKaiNET] series; this proposal lives here because it changes this specification.
+
+== Summary
+
+A cartridge bundles its weights and compiled model artifacts, pinned by digest in a signed
+manifest. That is what a host should load and what a public source repository should not
+contain. This proposal adds the missing half: a *blueprint* — identity, a descriptor template,
+sources pinned by revision and digest with their license and redistribution class, a pinned
+toolchain, targets, declared inputs, ordered steps and an output mapping — and *materialization*,
+which executes a blueprint against a *materialization profile* and yields an ordinary cartridge
+whose manifest records the blueprint as provenance. Normative text:
+xref:blueprints.adoc[Blueprints]. Spec v0.4; additive.
+
+== Motivation
+
+* *The first cartridges cannot be published as they are.* The Moonshine v2 streaming ASR and
+  FunctionGemma NLU cartridges exist and work, but their repositories either contain hundreds of
+  megabytes of compiled modules and parameter archives, or reference them out of band. Neither
+  shape is publishable: the weights have a publisher and terms (MIT for Moonshine's English
+  checkpoints, a revenue-capped community license for its other languages, Gemma's Terms of Use
+  for FunctionGemma), and re-hosting them drops those terms on the floor.
+* *The build loop is unrecorded.* "Developing a cartridge" is eight lines of prose. Which
+  upstream revision, which files, how they were converted and quantized, which exporter and
+  compiler versions — known to whoever built it, written down nowhere a reviewer or a machine can
+  check. `provenance.inputs` records digests after the fact; `provenance.producer` is a free
+  string.
+* *OQ11 has no subject.* "Can builds be made reproducible" cannot be tested while "the build"
+  is not a defined object.
+* *The open/closed seam already exists one level up and works.* Cartridge vs. adapter separates
+  public, app-agnostic code from product policy. The same seam is needed inside the build: a
+  public recipe, and a private place for the target fleet, license acceptances, mirrors,
+  product-specific inputs and signing keys. Without it the only way to build privately is to
+  fork.
+
+== Goals
+
+* A cartridge's code, interface, descriptor template and *complete build recipe* can be open
+  source while no weight and no compiled artifact is redistributed.
+* License terms are part of the recipe and are evaluated *before* anything is downloaded;
+  acceptance is an explicit, recorded act of the party that builds.
+* A materialized cartridge is an ordinary cartridge. Hosts, adapters, the ABI, the threat model
+  and verification are untouched.
+* The descriptor honesty rule survives: a recipe cannot supply `performance` or `quality`.
+* A private build of a public blueprint needs no fork — only a profile.
+* The lineage *source bytes → recipe → artifact bytes* is auditable from the manifest.
+
+== Non-Goals
+
+* Reproducible builds themselves (OQ11). Blueprints make them testable, not true.
+* A hub, registry or build service. Blueprints are source; materialized cartridges are
+  distributed by the existing modes A and C.
+* Describing how a model was trained. A blueprint starts at a published checkpoint.
+* A general-purpose build system. The step vocabulary is closed and small on purpose.
+* Changing weight-only updates. A `weights-update` still pins a base cartridge by digest.
+
+== Proposed Design
+
+The normative text is xref:blueprints.adoc[]. In outline:
+
+=== The blueprint (`blueprint.json`)
+
+`spec_version`, `kind: blueprint`, `id` (`<task>-<model>-<runtime>`, no target), `version` (of the
+recipe), `license` (of the blueprint's own content), `descriptor_template`, `sources[]`,
+`toolchain{}`, `targets[]`, `flavors[]`, `inputs[]`, `steps[]`, `outputs[]`, `verification[]`,
+`reference_measurements[]`. Schema: `examples/cartridge-blueprint.schema.json`.
+
+Design decisions worth recording:
+
+* *Two pins per source.* An immutable publisher revision *and* a SHA-256 per file. The revision
+  says where to look; the digest is what is trusted. A mirror may replace the first, never the
+  second.
+* *Redistribution class on every source* — `allowed`, `restricted`, `acceptance-required`. It
+  is the one license fact a materializer needs before it acts, and it cannot be derived from an
+  SPDX id alone (a community license with a revenue cap has no SPDX id and is not "proprietary").
+* *A closed step vocabulary* — `fetch`, `convert`, `quantize`, `export`, `compile`,
+  `build-runtime`, `measure`, `pack`, `sign`. A reviewer can see that only `fetch` touches the
+  network and that numerics change only in `quantize` (and declared dtype casts in `convert`)
+  without executing anything.
+* *Declared inputs.* Anything host- or organization-specific — a function-calling model's tool
+  catalog is the motivating case — is an input with a schema, supplied by the profile. This is
+  the cartridge contract's app-agnosticism rule applied to the build: product content never
+  enters the blueprint, not even as a sample.
+* *The template excludes what cannot be known.* `id`, `version`, `target`, `license`,
+  `performance`, `quality` are rejected by the schema inside `descriptor_template`.
+  `reference_measurements` exists so authors can still say what they saw — as an expectation.
+
+=== Materialization and the profile
+
+`materialization-profile.schema.json`: `blueprint{id, version, digest, source}`, `target`,
+`flavors[]`, `cartridge{id?, version}`, `license_acceptance[]`, `mirrors{}`, `inputs{}`,
+`measurements{}`, `descriptor_overrides{}`, `signing{keyid, signer, key_ref}`.
+
+The procedure is ten ordered steps (validate → license check → fetch + verify → validate inputs
+→ run steps → verification gate → resolve descriptor → compute effective license → pack →
+sign). Two rules carry most of the weight: a materializer *MUST stop* at an
+`acceptance-required` source without a matching acceptance record and MUST NOT offer to accept;
+and a digest mismatch is fatal.
+
+=== Manifest
+
+Two optional members under `provenance` — `blueprint{id, version, digest, source}` and
+`materialization{profile_digest, target, flavors, toolchain, materializer}`. `profile_digest`
+pins a profile without publishing it, so a private profile stays private and the build stays
+auditable to whoever holds it.
+
+=== Reference implementation
+
+A Gradle plugin, `sk.ainet.cartridge.blueprint`, in the blueprints repository, with tasks that
+mirror the step kinds and an umbrella `materializeCartridge -Pprofile=…`. Model-side steps are
+Kotlin on the SKaiNET stack (weight loading, conversion, quantization, StableHLO export);
+compilation is delegated to IREE tools (StableHLO → IREE). The specification does not depend on
+the plugin.
+
+== Requirements
+
+=== Functional
+
+. The worked blueprint and profile validate against their schemas; the descriptor resolved from
+  them validates against `cartridge-descriptor.schema.json`.
+. A blueprint with a `performance` block in its template, a source file without a digest, or an
+  unknown redistribution class is rejected by the schema.
+. Existing descriptors and manifests validate unchanged against the v0.4 schemas.
+. A manifest carrying `provenance.blueprint` verifies with the existing `verify_manifest.py`.
+
+=== Non-Functional
+
+. No new runtime surface: nothing a host loads or calls changes.
+. A blueprint is reviewable by reading: no step hides a download or a precision change.
+. Nothing organization-specific is expressible in a blueprint without misusing a field.
+
+== Compatibility & Migration
+
+Additive. Descriptor shape is unchanged; its `spec_version` accepts `0.3` and `0.4`. Manifest
+schema v2 gains two optional `provenance` members. No existing cartridge needs to change, and a
+cartridge need not have a blueprint.
+
+Migrating an existing cartridge repository to a blueprint: remove model artifacts and prebuilt
+libraries from the tree (and from history, by starting the public repository fresh); describe
+the sources and steps in `blueprint.json`; move device-, fleet- and product-specific content
+into a profile and declared inputs; replace measured descriptor fields with
+`reference_measurements`.
+
+== Rollout Plan
+
+. *Spec* — this proposal, ADR-015, `blueprints.adoc`, the two schemas with a worked pair,
+  manifest provenance, concept-page cross-references, first guides. _(this change)_
+. *Materializer* — the Gradle plugin, exercised by a synthetic blueprint in its functional tests.
+. *First blueprints* — `nlu-functiongemma-270m-iree`, then `asr-moonshine-v2-streaming-iree`
+  (the latter first needs its weight conversion ported to Kotlin).
+. *Proof* — existing private cartridges re-materialized from the public blueprints and shown to
+  pass the same golden checks as the hand-built ones.
+
+== Acceptance Criteria
+
+* All functional requirements above hold in CI.
+* The documentation site builds with the new pages and navigation.
+* Both first blueprints materialize end to end for at least one target each, from a clean
+  machine, by following the published tutorial.
+* At least one private, downstream materialization of a public blueprint exists that required no
+  change to the blueprint.
+
+== Risks
+
+* *The recipe drifts from reality* if cartridges keep being built by hand. Mitigation: the
+  first blueprints replace, not accompany, the existing build paths.
+* *Publisher endpoints change or disappear.* Digests keep a mirrored copy trustworthy; they do
+  not make a vanished file reappear. Mirrors are the mitigation and are first-class for that
+  reason.
+* *License classification is a judgment.* `restricted` vs. `allowed` is stated by blueprint
+  authors and can be wrong. The materializing party remains responsible; the field makes the
+  question visible, it does not answer it for them.
+* *A closed step vocabulary may be too small* for a backend not yet met (OQ-B1).
+* *Compiler availability.* A recipe is only as open as its toolchain; a step whose tool is not
+  publicly obtainable must say so, and must document an equivalent public invocation.
+
+== Open Questions
+
+OQ-B1 step-vocabulary extension · OQ-B2 expected digests per target · OQ-B3 signed blueprint
+releases and their trust role · OQ-B4 referencing third-party measurements — see
+xref:blueprints.adoc[].
+
+== References
+
+* xref:blueprints.adoc[Blueprints] — normative text
+* xref:adr/adr-015-cartridge-blueprints.adoc[ADR-015], xref:adr/adr-004-license-composition.adoc[ADR-004],
+  xref:adr/adr-012-pack-dir-layout.adoc[ADR-012], xref:adr/adr-014-cartridge-flavors.adoc[ADR-014]
+* xref:index.adoc#developing[Developing a cartridge], xref:index.adoc#consuming[Consuming a cartridge] (Modes B and C), OQ11
