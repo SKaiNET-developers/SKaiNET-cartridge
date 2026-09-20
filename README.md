@@ -15,10 +15,10 @@ app-specific (often closed) glue.
 
 Start with the [MANIFESTO](MANIFESTO.md) (the short front door), then the spec.
 
-> **Project status — normative draft.** Spec v0.3, ABI v0.1. Every section carries a maturity
+> **Project status — normative draft.** Spec v0.4, ABI v0.1. Every section carries a maturity
 > tag (*working* / *drafted* / *direction*). Expect the drafted parts to change through ADRs.
 
-## The spec (v0.3)
+## The spec (v0.4)
 
 Rendered documentation: **https://skainet-developers.github.io/SKaiNET-cartridge/**
 
@@ -31,6 +31,13 @@ as Asciidoc:
   [`cartridge-abi/include/cartridge_abi.h`](cartridge-abi/include/cartridge_abi.h))
 - [`task-profiles.adoc`](docs/modules/ROOT/pages/task-profiles.adoc) — per-task consumer
   contracts (`asr/v1`, `yolo/v1`) and the typed facade
+- [`blueprints.adoc`](docs/modules/ROOT/pages/blueprints.adoc) — **new in v0.4**: the open,
+  weight-free recipe a cartridge is built from, and *materialization* — how a blueprint plus a
+  profile becomes a signed cartridge. Guides:
+  [tutorial](docs/modules/ROOT/pages/tutorials/build-cartridge-from-blueprint.adoc),
+  [private materialization](docs/modules/ROOT/pages/how-to/materialize-privately.adoc),
+  [explanation](docs/modules/ROOT/pages/explanation/blueprint-vs-cartridge.adoc);
+  design record: [SKEEP-007](docs/modules/ROOT/pages/skeep/007-cartridge-blueprints.adoc)
 - [`threat-model.adoc`](docs/modules/ROOT/pages/threat-model.adoc) — who verifies what, where
 - [`roadmap.adoc`](docs/modules/ROOT/pages/roadmap.adoc) — phases 2–5
 - [`adr/`](docs/modules/ROOT/pages/adr/index.adoc) — decision log

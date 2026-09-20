@@ -1,0 +1,211 @@
+= Build a cartridge from a blueprint
+:navtitle: Tutorial: build from a blueprint
+
+[.lead]
+You will take an open-source blueprint, download the model it names from the model's own
+publisher, convert and compile it for an Android device, and end up with a signed cartridge on
+disk that an app can load. Nothing is downloaded from the blueprint's repository except code.
+
+[IMPORTANT]
+====
+*Preview.* The materializer — the Gradle plugin `sk.ainet.cartridge.blueprint` — is being built
+(xref:roadmap.adoc[roadmap, Phase 2]). This tutorial describes its intended interface; task and
+property names may change until its first release. The file formats it reads are normative
+today: xref:blueprints.adoc[Blueprints].
+====
+
+== What you will build
+
+A `pack_dir` for the `nlu-functiongemma-270m-iree` blueprint, target `vulkan-arm64`:
+
+[listing]
+----
+build/cartridge/nlu-functiongemma-270m-iree-vulkan-arm64/
+├── descriptor.json            resolved from the blueprint's template + your profile
+├── manifest.json              digests, licenses, provenance.blueprint — signed by YOU
+└── artifacts/
+    ├── runtime/               native library, built from the blueprint's source
+    ├── model/                 compiled graphs (.vmfb)
+    ├── weights/               parameter archive (.irpa)
+    ├── tokenizer/
+    └── other/tool-catalog.json   your input
+----
+
+== What you will learn
+
+* How a blueprint pins what it downloads, and why you accept a model license yourself.
+* What the steps between a checkpoint and a compiled module are, and which tool runs each.
+* Which descriptor fields a recipe can never fill in for you.
+
+== Prerequisites
+
+* JDK 21 or newer, and Git.
+* Android SDK with the NDK version the blueprint's README names (the runtime is cross-compiled).
+* Docker — the compile steps run in the *IREE tools* images (StableHLO → IREE).
+* An account at the model's publisher, with the model's terms accepted *there* (for the
+  example: the Gemma Terms of Use), and an access token in `HF_TOKEN`.
+* About 3 GB of disk, and for Step 7 an arm64 Android device with a Vulkan-capable GPU.
+
+== Step 1 — Get a blueprint
+
+[source,bash]
+----
+git clone https://github.com/SKaiNET-developers/skainet-cartridge-blueprints.git
+cd skainet-cartridge-blueprints/blueprints/nlu-functiongemma-270m-iree
+----
+
+Open `blueprint.json`. Three parts are worth reading before you run anything:
+
+`sources`:: Where the weights come from — a publisher URI, an immutable `revision`, and a
+  SHA-256 for every file. `redistribution: acceptance-required` means the download will refuse
+  to start until *you* record that you accepted the publisher's terms.
+`toolchain`:: The exact versions of SKaiNET, SKaiNET-transformers and IREE tools the recipe was
+  written against.
+`steps`:: The whole build, in order. Only `fetch` touches the network; only `quantize` (and
+  declared dtype casts in `convert`) changes numbers.
+
+Check that the repository really contains no model: `git ls-files | grep -E '\.(safetensors|gguf|vmfb|irpa|so)$'`
+prints nothing.
+
+== Step 2 — Write a materialization profile
+
+A profile is *your* half of the build. Create `profiles/my-device.json`:
+
+[source,json]
+----
+{
+  "spec_version": "0.4",
+  "kind": "materialization-profile",
+  "blueprint": { "id": "nlu-functiongemma-270m-iree", "version": "0.1.0" },
+  "target": "vulkan-arm64",
+  "cartridge": { "version": "0.1.0" },
+  "license_acceptance": [
+    { "source": "weights",   "license": "Gemma Terms of Use",
+      "terms_url": "https://ai.google.dev/gemma/terms",
+      "accepted_by": "<your name or legal entity>", "accepted_at": "<today>" },
+    { "source": "tokenizer", "license": "Gemma Terms of Use",
+      "terms_url": "https://ai.google.dev/gemma/terms",
+      "accepted_by": "<your name or legal entity>", "accepted_at": "<today>" }
+  ],
+  "inputs": {
+    "tool-catalog": { "path": "samples/toy-catalog.json", "license": "MIT" }
+  },
+  "signing": { "keyid": "my-dev-key", "signer": "<you>", "key_ref": "CARTRIDGE_SIGNING_KEY" }
+}
+----
+
+The acceptance entries are a record of something you did, not a switch: read the terms first.
+The tool catalog is an *input* because the functions a model may call belong to a host, never
+to a blueprint; the repository ships only a three-function toy catalog for trying things out.
+
+== Step 3 — Fetch and verify the sources
+
+[source,bash]
+----
+./gradlew blueprintFetch -Pprofile=profiles/my-device.json
+----
+
+Remove one `license_acceptance` entry and run it again: it stops before any download and names
+the source and its terms. Put it back. After a successful run, every file under
+`build/blueprint/sources/` has been checked against the digest in `blueprint.json`; a mismatch
+fails the build.
+
+== Step 4 — Convert and quantize
+
+[source,bash]
+----
+./gradlew blueprintConvert -Pprofile=profiles/my-device.json
+----
+
+This is Kotlin on the SKaiNET stack: the checkpoint is read with the SafeTensors reader and
+written as the external-parameter file the exported graphs will reference. For this target the
+recipe stores weights as `bf16` and computes in `f32`; the step prints exactly which tensors
+were cast and which were left alone. There is no integer quantization in this recipe — when a
+blueprint has one, it is a separate `quantize` step with its own parameters.
+
+== Step 5 — Export StableHLO
+
+[source,bash]
+----
+./gradlew blueprintExport -Pprofile=profiles/my-device.json
+----
+
+The model is traced in Kotlin into StableHLO modules, one per graph the runtime needs (prefill,
+prefill-with-past, decode-with-past). Weights stay *external* to the modules, so the `.mlir`
+files are small and readable: open one and look for `stablehlo.` operations and the
+`parallel_dims` schedule attribute on attention.
+
+== Step 6 — Compile with IREE tools (StableHLO → IREE)
+
+[source,bash]
+----
+./gradlew blueprintCompile blueprintBuildRuntime -Pprofile=profiles/my-device.json
+----
+
+`blueprintCompile` turns each module into a `.vmfb` for the target's backend (`vulkan-spirv`
+here) and converts the parameters into an `.irpa` archive. `blueprintBuildRuntime` cross-builds
+the native library that implements the xref:abi.adoc[Runtime ABI] from the blueprint's C source.
+Both run inside the pinned IREE tools images. The blueprint's README lists the equivalent plain
+`iree-compile` invocation for every step, for building without the images.
+
+== Step 7 — Measure
+
+Performance is a property of *your* artifacts on *your* device, so no recipe can fill it in:
+
+[source,bash]
+----
+./gradlew blueprintMeasure -Pprofile=profiles/my-device.json   # device connected over adb
+----
+
+The step runs the blueprint's benchmark workload on the device and writes `performance` into
+the resolved descriptor. The blueprint's `reference_measurements` tell you roughly what to
+expect; they are never copied. For `task: asr` blueprints the same step also produces the
+mandatory `quality` block.
+
+== Step 8 — Pack, sign, verify
+
+[source,bash]
+----
+export CARTRIDGE_SIGNING_KEY="$(cat ~/keys/my-dev-key.pem)"
+./gradlew materializeCartridge -Pprofile=profiles/my-device.json
+----
+
+`materializeCartridge` runs anything not yet done, then the blueprint's `verification` checks,
+computes the effective license, writes the `pack_dir` and signs the manifest. Look at two
+things in `manifest.json`:
+
+* `effective_license` — not MIT, although the blueprint is: the weights' terms carry over.
+* `provenance.blueprint` — the blueprint's id, version and digest, and `provenance.inputs` with
+  the digest of every file you downloaded.
+
+Verify it the way a host or a staging step would — `verify_manifest.py` from this repository's
+`examples/`, given the key id from your profile and the matching public key:
+
+[source,bash]
+----
+python3 verify_manifest.py build/cartridge/nlu-functiongemma-270m-iree-vulkan-arm64/manifest.json \
+        my-dev-key=$HOME/keys/my-dev-key.pub
+----
+
+== Step 9 — Use it from an Android app
+
+Add the blueprint's Kotlin API as a dependency and point it at the `pack_dir` — staged into the
+app's assets, or side-loaded during development:
+
+[source,kotlin]
+----
+dependencies {
+    implementation("sk.ainet.cartridge:nlu-functiongemma-270m-iree:0.1.0")
+}
+----
+
+The API artifact contains code only; the app gets its model from the cartridge you just built.
+
+== Where to go next
+
+* xref:how-to/materialize-privately.adoc[Materialize privately] — mirrors, your own inputs, your
+  own registry, no fork.
+* xref:explanation/blueprint-vs-cartridge.adoc[Blueprint vs. cartridge] — why the split is where it is.
+* Model-specific guides in the blueprints repository: download, convert, quantize and compile,
+  step by step, for Moonshine v2 streaming ASR and FunctionGemma.
+* xref:blueprints.adoc[Blueprints] — the normative text.
