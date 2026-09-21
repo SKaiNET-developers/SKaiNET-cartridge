@@ -25,9 +25,9 @@ xref:blueprints.adoc[Blueprints]. Spec v0.4; additive.
 * *The first cartridges cannot be published as they are.* The Moonshine v2 streaming ASR and
   FunctionGemma NLU cartridges exist and work, but their repositories either contain hundreds of
   megabytes of compiled modules and parameter archives, or reference them out of band. Neither
-  shape is publishable: the weights have a publisher and terms (MIT for Moonshine's English
-  checkpoints, a revenue-capped community license for its other languages, Gemma's Terms of Use
-  for FunctionGemma), and re-hosting them drops those terms on the floor.
+  shape is publishable: the weights have a publisher and terms (MIT for Moonshine's streaming
+  checkpoints, a non-commercial community license for its legacy non-English models, Gemma's
+  Terms of Use for FunctionGemma), and re-hosting them drops those terms on the floor.
 * *The build loop is unrecorded.* "Developing a cartridge" is eight lines of prose. Which
   upstream revision, which files, how they were converted and quantized, which exporter and
   compiler versions — known to whoever built it, written down nowhere a reviewer or a machine can

@@ -226,10 +226,14 @@ checkpoint), plus every supplied input.
   the cartridge may be passed on under the computed license; `restricted` — only under
   conditions the materializer must check for itself (a revenue cap, a display duty, a field of
   use); `acceptance-required` — access itself is conditional, and the result inherits the terms.
-* The worked constraint on the concept page is the model case: Moonshine's English checkpoints
-  are MIT, its non-English ones are under a revenue-capped community license. A Moonshine
-  blueprint therefore marks the German flavor's source `restricted`, and a materialization that
-  selects that flavor carries the obligation into its manifest — visibly, instead of nowhere.
+* Licenses are facts about a *specific checkpoint at a specific revision*, stated by its
+  publisher — never inferred from the model family. Moonshine is the worked case: its streaming
+  checkpoints are MIT in every language (a German streaming flavor's source is `allowed`), while
+  its legacy non-streaming models for languages other than English stay under a non-commercial
+  community license (a blueprint using one marks that source `restricted`, and a
+  materialization selecting it carries the obligation into its manifest — visibly, instead of
+  nowhere). A blueprint author checks the publisher's statement for the pinned revision and
+  records `license_url`; a materializer re-checks it.
 
 [#provenance]
 === Provenance

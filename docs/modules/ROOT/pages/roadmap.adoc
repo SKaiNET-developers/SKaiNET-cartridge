@@ -47,8 +47,8 @@ maturity tags, ADR log; Runtime ABI v0.1 (`cartridge-abi/include/cartridge_abi.h
   `requirements.driver` + `ctg_preflight`. Descriptor v0.2 with measured WER.
 * *ORT Moonshine cartridge (`asr-moonshine-ort-cpu`)*: ABI wrapper over `moonshine-c-api.h`; descriptor v0.2
   (`execution_mode: eager`, `family`, `endpointing: signal`, honest per-ABI RTF); LICENSE +
-  NOTICE (MIT English models; the non-English Community-License constraint documented as the
-  OQ10 worked case); Silero-blob artifact granularity decided (extract to file vs. accept
+  NOTICE (MIT models; the Community-License constraint on the publisher's legacy non-streaming
+  non-English models documented as the OQ10 worked case); Silero-blob artifact granularity decided (extract to file vs. accept
   whole-binary granularity, per the granularity rule in xref:index.adoc#integrity[]).
 * *Adapters onto `asr/v1`*: both of the first app's ASR adapters implement the profile; the
   duplicated session/channel/PCM plumbing (~250–300 LOC each) hoists into a shared support

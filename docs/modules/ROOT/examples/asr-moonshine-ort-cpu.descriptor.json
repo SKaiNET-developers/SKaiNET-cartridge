@@ -11,7 +11,7 @@
     "checkpoint": "usefulsensors/moonshine-tiny-streaming",
     "upstream": {
       "source": "https://github.com/moonshine-ai/moonshine",
-      "license": "MIT (English models; non-English models are Moonshine AI Community License — revenue-capped, enterprise license required above USD $1M/yr — see ADR-004)"
+      "license": "MIT (per the publisher, Moonshine models are MIT in every language and size; only the legacy non-streaming non-English models stay under the non-commercial Moonshine Community License — see ADR-004)"
     }
   },
   "modality": "audio",
