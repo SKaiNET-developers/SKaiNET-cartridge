@@ -8,7 +8,10 @@ unattributed Whisper-derived (MIT) weights, vendor Apache-2.0 NPU sample code mo
 modification notices — while being publicly described as "Apache-2.0". Moonshine adds a
 sharper case: English models MIT, non-English models revenue-capped (Community License,
 $1M/yr) with a display duty — a *product-blocking* constraint invisible in a single top-level
-license string. +
+license string. _Correction (2026-09-21): that scope was too broad. Per the publisher's README,
+Moonshine models are MIT in every language and size; only the *legacy non-streaming* models for
+languages other than English stay under the (non-commercial) Community License. The decision
+below is unaffected — the case still exists, for fewer models._ +
 *Decision:* The manifest records `license` and `derived_from` *per artifact*; the descriptor's
 `license` is the *effective* license and MUST be satisfiable given all upstream obligations.
 `NOASSERTION` marks unremediated packages and is treated as a failure by conformance tooling.

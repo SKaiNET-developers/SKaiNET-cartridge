@@ -179,12 +179,16 @@ Worked reality checks from the existing cartridges:
   carries `license: NOASSERTION`.
 
 | `asr-moonshine-ort-cpu`
-| The bundled `tiny-streaming-en` model is MIT (Moonshine AI licenses its *English* models
-  MIT). Its *non-English* models fall under the Moonshine AI Community License: commercial use
-  only below USD $1M annual revenue, mandatory notice and "Powered by Moonshine AI" display —
-  i.e. any *German* Moonshine cartridge for this ecosystem requires an enterprise license
-  before it can exist. Exactly the kind of constraint the manifest must carry and a build gate
-  must surface (OQ10's worked case).
+| The bundled `tiny-streaming-en` model is MIT. Per the publisher
+  (https://github.com/moonshine-ai/moonshine#license[moonshine-ai/moonshine, License]), Moonshine
+  models are MIT "in every language and at every size" — the *streaming* checkpoints included,
+  so a German streaming cartridge (`moonshine-ai/moonshine-streaming-tiny-de`, model card:
+  `license: mit`) is MIT too. The one exception is the *legacy non-streaming* models for
+  languages other than English, which stay under the non-commercial Moonshine Community
+  License. A cartridge built on one of *those* needs a separate agreement before it can ship —
+  exactly the kind of constraint the manifest must carry and a build gate must surface (OQ10's
+  worked case). _Corrected 2026-09-21: earlier text applied the community license to all
+  non-English models._
 |===
 
 The descriptor's `license` field states the *effective* license: an SPDX id for open weights;
@@ -699,8 +703,9 @@ be promoted the same way.
   declared; tolerance = which attributes the host marks *required*. Remaining: a sensible
   default required-set per task profile.
 * *OQ10 — Commercial licensing field(s).* Formalize the closed/commercial shape of `license` +
-  entitlement pointers. v0.2 adds the concrete worked case (Moonshine Community License:
-  revenue-capped commercial use, display duty) that the field structure must be able to carry.
+  entitlement pointers. v0.2 adds the concrete worked case (the Moonshine Community License on
+  the publisher's legacy non-streaming non-English models: a non-commercial license next to MIT
+  siblings of the same family) that the field structure must be able to carry.
 * *OQ11 — Reproducible builds.* Whether the NPU builder / an ORT export / an IREE compile can be made
   bit-for-bit deterministic — prerequisite for the Mode-B trust path to mean anything beyond
   "I trust my own laptop." v0.4 supplies the other prerequisite: a xref:blueprints.adoc[blueprint]

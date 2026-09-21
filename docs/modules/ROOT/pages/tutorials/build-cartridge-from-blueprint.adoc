@@ -50,8 +50,8 @@ build/cartridge/nlu-functiongemma-270m-iree-vulkan-arm64/
 
 [source,bash]
 ----
-git clone https://github.com/SKaiNET-developers/skainet-cartridge-blueprints.git
-cd skainet-cartridge-blueprints/blueprints/nlu-functiongemma-270m-iree
+git clone https://github.com/SKaiNET-developers/SKaiNET-cartridge-blueprints.git
+cd SKaiNET-cartridge-blueprints/blueprints/nlu-functiongemma-270m-iree
 ----
 
 Open `blueprint.json`. Three parts are worth reading before you run anything:
