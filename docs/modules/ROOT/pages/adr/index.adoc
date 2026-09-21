@@ -19,3 +19,4 @@ vanishes from the list.
 * xref:adr/adr-012-pack-dir-layout.adoc[ADR-012 (proposed) — Minimal on-disk `pack_dir` layout]
 * xref:adr/adr-013-manifest-artifact-component-field.adoc[ADR-013 (proposed) — A `component` label on manifest artifacts, for composed-pipeline cartridges]
 * xref:adr/adr-014-cartridge-flavors.adoc[ADR-014 — `flavors`: additional measured variants (language, runtime tier, ABI) inside one descriptor]
+* xref:adr/adr-015-cartridge-blueprints.adoc[ADR-015 (proposed) — Cartridge blueprints: the open recipe; materialization yields the cartridge]

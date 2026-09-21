@@ -1,0 +1,80 @@
+= Blueprint vs. cartridge
+:navtitle: Explanation: blueprint vs. cartridge
+
+[.lead]
+Why the specification has two objects where a repository with a build script might seem enough,
+and why the line between them runs exactly at the weights.
+
+== Two audiences, two shapes
+
+A *host* wants something sealed: bytes it can verify against a signature and load, with no
+network access, no build, no decisions. That is a cartridge, and nothing about blueprints
+changes it.
+
+A *reader of source* — a contributor, a reviewer, a license auditor, someone porting the model
+to new hardware — wants the opposite: everything open to inspection, nothing opaque, nothing
+that had to be trusted because it was too big to read. A directory of compiled modules and a
+500 MB parameter archive fails that reader completely, even under an open-source license.
+
+The two shapes cannot be the same object. A blueprint is the second shape; materialization is
+the function from one to the other.
+
+[listing]
+----
+  blueprint  (open, small, reviewable)            cartridge  (sealed, large, verifiable)
+  ─────────────────────────────────────           ─────────────────────────────────────
+  API + runtime SOURCE                            runtime LIBRARY
+  descriptor TEMPLATE                  ──►        descriptor, with measured numbers
+  sources: uri + revision + digest   materialize  weights, compiled model (bytes)
+  toolchain pins, ordered steps        ──►        manifest: digests, licenses, provenance
+  license of the code                             EFFECTIVE license of everything inside
+  signed by: nobody needs to                      signed by: whoever materialized
+----
+
+== Why the line runs at the weights
+
+Three different things change hands at that line.
+
+*Ownership.* Code in a blueprint belongs to its authors and is theirs to license. Weights belong
+to a publisher who set terms — sometimes permissive, sometimes capped by revenue, sometimes
+conditional on accepting an agreement. A repository that contains the weights has made a
+redistribution decision on behalf of everyone who clones it. A blueprint makes none: it names
+the publisher, the revision and the terms, and the person who builds decides.
+
+*Size and specificity.* Source is kilobytes and target-independent. A compiled module is
+megabytes and useful for one backend on one architecture. Keeping them apart means the open
+part stays small enough to actually read, and targets can be added by changing a recipe instead
+of committing another set of binaries.
+
+*Trust.* A recipe can be trusted by reading it. Bytes cannot — they are trusted because someone
+accountable signed them, or because you rebuilt them yourself. So a blueprint needs review, and
+a cartridge needs a signature by the party that ran the build. Conflating the two is how
+"open-source model packages" end up with unauditable binaries in their trees.
+
+== Why measured numbers stay out of the recipe
+
+The descriptor's rule is that performance and quality are *measured on the stated target and
+reported honestly*. If a blueprint carried those numbers, every cartridge built from it would
+inherit a claim about hardware its builder may never have touched. So the template leaves them
+out, the schema rejects them, and a blueprint can offer only `reference_measurements` — "this is
+what we saw" — which a materializer compares against and never copies. Two honest builders of
+the same blueprint will publish different numbers. That is the system working.
+
+== Why product content is an input, not an example
+
+A function-calling model needs a catalog of functions; a keyword spotter needs a vocabulary.
+Shipping "a sample" inside the blueprint looks harmless and is how product knowledge leaks into
+public components: the sample is always derived from the real one. The cartridge contract
+already draws this line for code — no application concepts inside a cartridge — and blueprints
+draw it for the build: the slot is declared, with a schema; the content arrives through a
+profile. A public blueprint ships at most a toy that could not be mistaken for anyone's product.
+
+== What this buys, and what it costs
+
+It buys cartridges that can be open source at all; license terms that surface before a download
+instead of after a release; private builds without forks; and a defined object for reproducible
+builds to be about.
+
+It costs a second artifact to specify and keep true. A blueprint that is not the way the
+cartridge is *actually* built is worse than none — which is why the first blueprints replace the
+hand-run build paths of the existing cartridges instead of documenting them from the side.

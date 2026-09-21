@@ -100,6 +100,39 @@
               "description": "Present only when value is worse than baseline: the recorded justification for shipping anyway. Never ship a degradation silently."
             }
           }
+        },
+        "blueprint": {
+          "description": "v0.4 (SKEEP-007, ADR-015): set when this cartridge was materialized from a blueprint — which recipe produced these bytes. `digest` is the sha256 of the blueprint file and is what makes `version` mean exactly one recipe.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version", "digest"],
+          "properties": {
+            "id": { "type": "string" },
+            "version": { "type": "string" },
+            "digest": { "$ref": "#/$defs/digest" },
+            "source": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "repo": { "type": "string" },
+                "commit": { "type": "string" },
+                "coordinates": { "type": "string", "examples": ["sk.ainet.cartridge:nlu-functiongemma-270m-iree:0.1.0"] }
+              }
+            }
+          }
+        },
+        "materialization": {
+          "description": "v0.4: how the blueprint was executed. `profile_digest` pins the materialization profile without publishing it (a private profile stays private; its digest still makes the build auditable to whoever holds it). `toolchain` records the versions ACTUALLY used, which equal the blueprint's pins unless a substitution is being declared.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["target", "toolchain"],
+          "properties": {
+            "profile_digest": { "$ref": "#/$defs/digest" },
+            "target": { "type": "string", "description": "Id of the blueprint target that was materialized." },
+            "flavors": { "type": "array", "items": { "type": "string" } },
+            "toolchain": { "type": "object", "additionalProperties": { "type": "string" }, "examples": [{ "skainet": "0.56.0", "skainet-transformers": "0.56.0", "iree-tools": "3.11.0" }] },
+            "materializer": { "type": "string", "examples": ["sk.ainet.cartridge.blueprint@0.1.0"] }
+          }
         }
       }
     },

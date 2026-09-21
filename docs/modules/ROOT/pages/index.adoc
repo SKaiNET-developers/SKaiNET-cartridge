@@ -7,14 +7,14 @@ a real application on real hardware. This page defines the term and its contract
 ecosystem-wide — not tied to any one application.
 
 ****
-*Spec version:* 0.2 (see <<changelog>>). +
+*Spec version:* {spec_version} (see <<changelog>>). +
 *Status:* normative draft. Requirement keywords MUST / MUST NOT / SHOULD / MAY are used as in
 RFC 2119. Every section carries a maturity tag: +
 *[working]* — implemented and running today · *[drafted]* — normative text exists, implementation
 pending · *[direction]* — intended course, not yet normative. +
 *Scope:* the whole ecosystem; the first consumer app is one consumer (the first, not the goal). +
 *Companion pages:* xref:abi.adoc[Runtime ABI], xref:task-profiles.adoc[Task profiles],
-xref:threat-model.adoc[Threat model], xref:roadmap.adoc[Roadmap], xref:adr/index.adoc[Decision log]. +
+xref:blueprints.adoc[Blueprints], xref:threat-model.adoc[Threat model], xref:roadmap.adoc[Roadmap], xref:adr/index.adoc[Decision log]. +
 *Related:* the reference cartridges `asr-whisper-tiny-npu` (Whisper on a vendor NPU) and
 `asr-moonshine-ort-cpu` (Moonshine on ONNX Runtime), the SKaiNET/IREE Moonshine v2 engine, and
 the NPU cartridge builder.
@@ -251,6 +251,10 @@ separate, per-cartridge licensing choice — <<licensing>>.
   `examples/cartridge-manifest.schema.json`
 |===
 
+A cartridge *contains* its model artifacts. The open, weight-free description of how those
+artifacts are produced — pinned sources, pinned toolchain, ordered steps — is a
+xref:blueprints.adoc[blueprint] (v0.4); building a cartridge from one is *materialization*.
+
 === Capability descriptor (v0.3 shape)
 
 [listing]
@@ -471,6 +475,10 @@ of its fallback, and the worked example (Moonshine standing in for Whisper) viol
 == Developing a cartridge
 
 *[working]* — the loop below is how the two existing cartridges were actually produced.
+Since v0.4 the same loop has a machine-readable form: a xref:blueprints.adoc[blueprint] pins
+steps 1–3 (sources, toolchain, export, compile) and 4–7 (`build-runtime`, `measure`, `pack`,
+`sign`) as a recipe a materializer executes. Step 6 is unchanged by that: numbers are measured on
+the materialized artifacts, never carried by the recipe.
 
 [listing]
 ----
@@ -527,7 +535,9 @@ metadata.
 
 No hub required. A cartridge's source repo (the shape the two reference
 cartridges already follow) bundles the packaging step itself, so
-`git clone && <build>` produces a conformant package locally.
+`git clone && <build>` produces a conformant package locally. Since v0.4 that repo is a
+xref:blueprints.adoc[blueprint]: the weights are not in it — they are fetched from their
+publisher, pinned by revision and digest, under terms the builder accepts explicitly.
 
 This unlocks a trust path independent of signatures: *if the build is reproducible*, a consumer
 can rebuild from source and check that their own artifact digests match the digests in a
@@ -549,6 +559,11 @@ What survives unchanged is the only part that matters for trust: the manifest an
 signature(s) still get verified before load. For a single-publisher internal setting the trust
 store is trivial: pin the company's own key(s) once — baked into build images, provisioned on
 managed devices. This is the practical answer to OQ4 for the internal audience.
+
+When the cartridge comes from a public blueprint, this is
+xref:blueprints.adoc#private[downstream materialization]: the organization adds a profile
+(target, mirrors, license acceptances, its own inputs, its signing key) and nothing else — the
+blueprint is consumed by version, not forked.
 
 [#selection]
 == Multiple cartridges → selection is the host's job
@@ -625,6 +640,8 @@ be promoted the same way.
 * *A framework* — SKaiNET itself authors and runs models; it is the universe the cartridge
   lives in, not a cartridge.
 * *A compiler / build tool* — the NPU cartridge builder _produces_ cartridge model artifacts; it is not one.
+* *A blueprint* — the recipe and source a cartridge is built from (xref:blueprints.adoc[]); it has
+  no weights, no manifest and cannot be loaded.
 * *An app engine that embeds product logic* — that is an _adapter_, not a cartridge.
 
 == Relationship to the rest of the SKaiNET universe
@@ -686,7 +703,8 @@ be promoted the same way.
   revenue-capped commercial use, display duty) that the field structure must be able to carry.
 * *OQ11 — Reproducible builds.* Whether the NPU builder / an ORT export / an IREE compile can be made
   bit-for-bit deterministic — prerequisite for the Mode-B trust path to mean anything beyond
-  "I trust my own laptop."
+  "I trust my own laptop." v0.4 supplies the other prerequisite: a xref:blueprints.adoc[blueprint]
+  pins sources and toolchain, so there is now something well-defined to be deterministic *about*.
 * *OQ12 — Task profiles.* **Resolved (drafted)** by xref:task-profiles.adoc[] / ADR-005 for
   `asr/v1` and ADR-008 for `yolo/v1` (detection); `embedding` and `tts` remain open.
 * *OQ13 — On-demand delivery failure as a first-class capability?* ADR-009 (platform asset
@@ -697,6 +715,17 @@ be promoted the same way.
 
 [#changelog]
 == Changelog
+
+*v0.4 (2026-09-20)* — *blueprints* (SKEEP-007, ADR-015, xref:blueprints.adoc[]): the open,
+weight-free recipe a cartridge is built from — sources pinned by revision and digest with a
+license and a redistribution class, a pinned toolchain, targets, flavors, declared inputs, steps
+from a closed vocabulary, and outputs mapped to manifest artifacts — plus *materialization*, the
+profile-driven build that turns one into an ordinary cartridge. New schemas
+`cartridge-blueprint.schema.json` and `materialization-profile.schema.json` with a worked pair;
+manifest `provenance.blueprint` / `provenance.materialization` (optional, additive); the
+descriptor's `spec_version` accepts `0.3` and `0.4` (shape unchanged). First guides: a tutorial,
+a how-to for private materialization, an explanation page. Also fixed: this page's header still
+said spec version 0.2.
 
 *v0.3 (2026-09-09)* — descriptor `flavors` (ADR-014): one package can now cover several
 independently-addressable, independently-measured identities (a bundled language, a runtime

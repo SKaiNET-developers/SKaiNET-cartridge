@@ -8,8 +8,8 @@
   "required": ["spec_version", "id", "version", "family", "modality", "task", "io", "target", "performance", "execution_mode", "license"],
   "properties": {
     "spec_version": {
-      "const": "0.3",
-      "description": "The cartridge-spec version this descriptor conforms to."
+      "enum": ["0.3", "0.4"],
+      "description": "The cartridge-spec version this descriptor conforms to. The descriptor shape is unchanged between 0.3 and 0.4 (v0.4 adds blueprints and optional manifest provenance), so both are valid."
     },
     "execution_mode": {
       "type": "string",

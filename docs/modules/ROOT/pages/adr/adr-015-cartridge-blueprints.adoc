@@ -1,0 +1,36 @@
+= ADR-015 — Cartridge blueprints: the open recipe; materialization yields the cartridge
+
+*Status:* proposed (2026-09-20) — design record: xref:skeep/007-cartridge-blueprints.adoc[SKEEP-007]. +
+*Context:* A cartridge bundles its weights and compiled artifacts, pinned by digest — the right
+shape for something a host loads, the wrong one for a public source repository: weights have a
+publisher, a license and often terms that must be accepted; compiled modules are
+target-specific; and the build loop ("Developing a cartridge") was eight lines of prose, with no
+record of where weights come from, at which revision, or with which tool versions they are
+converted, quantized and compiled. Publishing the first cartridges as open source
+(Moonshine v2 streaming ASR, FunctionGemma NLU) is blocked on exactly this, and OQ11
+(reproducible builds) has nothing to be reproducible *about*. +
+*Decision:* Introduce the *blueprint* — `blueprint.json`
+(`cartridge-blueprint.schema.json`): identity, the license of its own code, a *descriptor
+template*, *sources* pinned by immutable revision and per-file SHA-256 with a license and a
+redistribution class (`allowed` / `restricted` / `acceptance-required`), a *toolchain* pinned to
+exact versions, *targets*, optional *flavors*, declared *inputs*, ordered *steps* from a closed
+vocabulary (`fetch`, `convert`, `quantize`, `export`, `compile`, `build-runtime`, `measure`,
+`pack`, `sign`), and *outputs* mapping step products to manifest artifacts with their
+`derived_from` edges. A blueprint MUST NOT contain artifacts of role `weights`, `model` or a
+built `runtime`, MUST NOT state measured `performance`/`quality` as descriptor content, and MUST
+NOT encode license acceptance. *Materialization* executes a blueprint against a
+*materialization profile* (`materialization-profile.schema.json`: target, flavors, cartridge
+version, license acceptances, mirrors, inputs, measurements, signing identity) and yields an
+ordinary cartridge — same `pack_dir` (ADR-012), descriptor, signed manifest and ABI — whose
+manifest gains optional `provenance.blueprint` and `provenance.materialization`. The effective
+license (ADR-004) is computed at materialization; the materializing party signs. Everything
+host- or organization-specific lives in the profile, which is what lets a public blueprint and a
+private cartridge coexist without a fork. +
+*Consequences:* Cartridges can be open source without redistributing weights; license terms
+travel with the recipe and surface *before* download; Mode B (clone and build) becomes
+machine-readable and OQ11 becomes testable; the descriptor honesty rule is preserved because a
+recipe may carry only *reference* measurements. Spec v0.4 is additive — existing descriptors and
+manifests remain valid. New surface to maintain: two schemas and a materializer (reference
+implementation: Gradle plugin `sk.ainet.cartridge.blueprint`). Open: step-vocabulary
+extension (OQ-B1), expected digests (OQ-B2), signed blueprints (OQ-B3), third-party
+measurements (OQ-B4).

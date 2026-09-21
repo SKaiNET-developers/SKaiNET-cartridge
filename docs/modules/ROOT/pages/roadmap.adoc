@@ -28,6 +28,12 @@ maturity tags, ADR log; Runtime ABI v0.1 (`cartridge-abi/include/cartridge_abi.h
   expressions + entitlement-restricted markers); generates the NOTICE file including display
   duties (e.g. "Powered by Moonshine AI"); *fails on undeclared licenses* — the current
   Whisper-on-NPU cartridge state fails this gate by design.
+* *Blueprint materializer* (v0.4, xref:blueprints.adoc[]) — Gradle plugin
+  `sk.ainet.cartridge.blueprint`: validate `blueprint.json` + profile, license check before
+  fetch, digest-verified fetch (mirrors allowed), pinned-toolchain steps, `verification` gate,
+  descriptor resolution, effective-license computation (shares the license gate above),
+  `pack_dir` + manifest with `provenance.blueprint`, signing. First blueprints:
+  `asr-moonshine-v2-streaming-iree`, `nlu-functiongemma-270m-iree`.
 
 == Phase 3 — Retrofit the two real cartridges
 

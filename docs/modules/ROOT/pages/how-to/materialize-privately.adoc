@@ -1,0 +1,122 @@
+= Materialize a public blueprint privately
+:navtitle: How-to: materialize privately
+
+[.lead]
+You ship products on your own hardware and want your cartridges built from a public blueprint —
+with your targets, your inputs, your keys and your artifact store — without forking it.
+
+This is xref:blueprints.adoc#private[downstream materialization]: everything that is yours lives
+in a *profile repository*; the blueprint is consumed by version.
+
+== Before you start
+
+* You can already xref:tutorials/build-cartridge-from-blueprint.adoc[build a cartridge from a blueprint].
+* You have an internal artifact store (consumption xref:index.adoc#consuming[Mode C]) and a CI
+  system that can hold a signing key.
+* Someone authorized has read the licenses of the blueprint's sources. For
+  `acceptance-required` and `restricted` sources that is a decision your organization makes, not
+  a build setting.
+
+== 1. Create a profile repository
+
+It contains no model code and no copy of the blueprint:
+
+[listing]
+----
+my-cartridges/
+├── settings.gradle.kts        plugin + blueprint resolved BY VERSION
+├── build.gradle.kts
+├── profiles/
+│   ├── product-a.json         one profile per (target, flavor set) you ship
+│   └── product-b.json
+└── inputs/                    your declared inputs — tool catalog, vocabulary, calibration set
+----
+
+[source,kotlin]
+----
+// build.gradle.kts
+plugins {
+    id("sk.ainet.cartridge.blueprint") version "<plugin version>"
+}
+dependencies {
+    blueprint("sk.ainet.cartridge:nlu-functiongemma-270m-iree:0.1.0")
+}
+----
+
+Pin the blueprint by exact version and put its digest into every profile
+(`blueprint.digest`): that is what makes "0.1.0" mean one recipe in an audit three years from now.
+
+== 2. Mirror the sources
+
+Builds should not depend on a public endpoint being up, or on a publisher keeping a revision
+available. Copy each source file into your artifact store once, then point the profile at it:
+
+[source,json]
+----
+"mirrors": {
+  "weights":   "https://artifacts.example.org/models/functiongemma-270m-it/",
+  "tokenizer": "https://artifacts.example.org/models/functiongemma-270m-it/"
+}
+----
+
+A mirror changes where bytes come from, never which bytes: the materializer still verifies every
+file against the digests in the blueprint. Mirroring is *hosting a copy for your own builds* —
+check that the source's license allows even that; for `acceptance-required` sources the
+acceptance covers your organization, not whoever can reach your mirror.
+
+== 3. Record license acceptances
+
+One `license_acceptance` entry per `acceptance-required` source, naming your legal entity and
+the date. Keep the profile under review like any other compliance record. For `restricted`
+sources, write down in the profile repository why your use satisfies the conditions (a revenue
+cap, a display duty) — the materializer cannot check that for you.
+
+== 4. Supply your inputs
+
+Put product-specific content where the blueprint declared a slot for it:
+
+[source,json]
+----
+"inputs": {
+  "tool-catalog": { "path": "inputs/product-a-catalog.json", "license": "proprietary" }
+}
+----
+
+The input is validated against the blueprint's schema, packed as a manifest artifact, and its
+license enters the effective-license computation — the cartridge becomes `proprietary`, with the
+public sources' obligations still listed per artifact. If what you need has no slot, that is a
+gap in the blueprint: propose the input upstream rather than patching the recipe locally.
+
+== 5. Describe your device, measure on it
+
+Blueprint targets name a hardware class. What is specific to your fleet goes into the profile's
+`descriptor_overrides` — typically `requirements.driver` — and `performance` / `quality` come
+from a `measure` run on one of your devices. Keep `measured_on` free of hostnames and
+addresses; it is published with the descriptor wherever the cartridge goes.
+
+== 6. Sign and publish in CI
+
+[source,bash]
+----
+./gradlew materializeCartridge -Pprofile=profiles/product-a.json publish
+----
+
+The signing key lives in CI and is referenced by `signing.key_ref`; it is never in the
+repository. Your hosts' trust store pins *your* key for these cartridge ids
+(xref:threat-model.adoc[threat model]) — the blueprint's authors vouch for a recipe, you vouch
+for the bytes. Publish the `pack_dir` in your usual carrier to your own store.
+
+== 7. Take blueprint updates deliberately
+
+A new blueprint version is a new recipe: bump the version and digest in the profiles, rebuild,
+re-measure, and compare the task metric against the cartridge you ship — the same regression
+discipline xref:index.adoc#integrity[weight updates] follow. A change you need in the *recipe*
+(a new target, another dtype) is not private by nature; contribute it upstream and consume it as
+the next version.
+
+== What must not happen
+
+* Product names, device identifiers or customer data in a pull request to the blueprint.
+* A private fork that edits `blueprint.json` "just for us" — its provenance would name a recipe
+  nobody else can see.
+* Copying `reference_measurements` into a profile instead of measuring.
