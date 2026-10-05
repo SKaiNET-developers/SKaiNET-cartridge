@@ -83,6 +83,26 @@ Spec changes go through an ADR in `docs/modules/ROOT/pages/adr/` — see
 [CONTRIBUTING.md](CONTRIBUTING.md). This project follows the SKaiNET
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
+## Citing
+
+If you reference the cartridge concept, the spec, the runtime ABI, or the task profiles in a
+paper or an implementation, please cite this repository. Citation metadata lives in
+[`CITATION.cff`](CITATION.cff) (GitHub's *Cite this repository* button exports BibTeX and APA
+from it). Ready-to-paste BibTeX:
+
+```bibtex
+@misc{skainet_cartridge_spec,
+  author       = {Harakal, Michal and {SKaiNET-developers contributors}},
+  title        = {{SKaiNET} Cartridge Specification},
+  year         = {2026},
+  note         = {Specification v0.4, Runtime ABI v0.1. MIT License},
+  howpublished = {\url{https://github.com/SKaiNET-developers/SKaiNET-cartridge}}
+}
+```
+
+When citing a specific normative statement, please include the spec version (the spec is a
+living draft; sections carry maturity tags) and, ideally, the commit hash or a tagged release.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

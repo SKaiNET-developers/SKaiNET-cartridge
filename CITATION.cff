@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: 2026 Michal Harakal and SKaiNET-developers contributors
+# SPDX-License-Identifier: MIT
+cff-version: 1.2.0
+message: >-
+  If you use the cartridge concept, spec, runtime ABI, or task profiles
+  in your research or implementation, please cite this repository.
+title: >-
+  SKaiNET-cartridge: Cartridge Specification, Runtime ABI, and Task Profiles
+type: software
+authors:
+  - family-names: Harakal
+    given-names: Michal
+    orcid: https://orcid.org/0009-0006-7981-4075
+  - name: SKaiNET-developers contributors
+    website: https://github.com/SKaiNET-developers
+version: "0.4"
+date-released: "2026-10-05"
+license: MIT
+repository-code: https://github.com/SKaiNET-developers/SKaiNET-cartridge
+url: https://skainet-developers.github.io/SKaiNET-cartridge/
+abstract: >-
+  Specification of the cartridge: a self-contained, application-agnostic
+  software package that runs one model on given hardware, with a minimal
+  input-to-output API callable from any language. Covers the cartridge
+  contract and descriptor, the C runtime ABI (v0.1), per-task consumer
+  profiles, blueprints and materialization, and the integrity and
+  licensing model.
+# The repository is the specification itself; implementations are provided
+# elsewhere. Citations should therefore point at the spec document, not at
+# a software release.
+preferred-citation:
+  type: report
+  title: SKaiNET Cartridge Specification
+  authors:
+    - family-names: Harakal
+      given-names: Michal
+      orcid: https://orcid.org/0009-0006-7981-4075
+    - name: SKaiNET-developers contributors
+      website: https://github.com/SKaiNET-developers
+  year: 2026
+  version: "0.4"
+  institution:
+    name: SKaiNET-developers
+  url: https://skainet-developers.github.io/SKaiNET-cartridge/
+  repository-code: https://github.com/SKaiNET-developers/SKaiNET-cartridge
+  license: MIT
+  notes: Specification v0.4, Runtime ABI v0.1. Normative draft.
+keywords:
+  - machine-learning deployment
+  - model packaging
+  - specification
+  - runtime ABI
+  - edge inference
+  - SKaiNET
