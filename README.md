@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![REUSE status](https://api.reuse.software/badge/github.com/SKaiNET-developers/SKaiNET-cartridge)](https://api.reuse.software/info/github.com/SKaiNET-developers/SKaiNET-cartridge)
 [![Docs](https://img.shields.io/badge/docs-skainet--developers.github.io-blue)](https://skainet-developers.github.io/SKaiNET-cartridge/)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23165734.svg)](https://doi.org/10.5281/zenodo.23165734)
 
 The home of the **cartridge** concept in the [SKaiNET](https://github.com/SKaiNET-developers/SKaiNET)
 universe — spec, schemas, runtime ABI, task profiles, and decision log, versioned together.
@@ -95,6 +96,7 @@ from it). Ready-to-paste BibTeX:
   author       = {Harakal, Michal and {SKaiNET-developers contributors}},
   title        = {{SKaiNET} Cartridge Specification},
   year         = {2026},
+  doi          = {10.5281/zenodo.23165734},
   note         = {Specification v0.4, Runtime ABI v0.1. MIT License},
   howpublished = {\url{https://github.com/SKaiNET-developers/SKaiNET-cartridge}}
 }
