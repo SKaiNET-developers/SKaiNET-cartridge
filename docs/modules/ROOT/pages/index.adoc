@@ -8,6 +8,9 @@ ecosystem-wide — not tied to any one application.
 
 ****
 *Spec version:* {spec_version} (see <<changelog>>). +
+*Cite as:* image:https://zenodo.org/badge/DOI/10.5281/zenodo.23165734.svg[DOI,link=https://doi.org/10.5281/zenodo.23165734] — the concept DOI, resolving to the latest
+archived version; BibTeX in the
+https://github.com/SKaiNET-developers/SKaiNET-cartridge#citing[repository README]. +
 *Status:* normative draft. Requirement keywords MUST / MUST NOT / SHOULD / MAY are used as in
 RFC 2119. Every section carries a maturity tag: +
 *[working]* — implemented and running today · *[drafted]* — normative text exists, implementation
