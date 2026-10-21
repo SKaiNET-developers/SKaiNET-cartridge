@@ -21,3 +21,4 @@ vanishes from the list.
 * xref:adr/adr-014-cartridge-flavors.adoc[ADR-014 — `flavors`: additional measured variants (language, runtime tier, ABI) inside one descriptor]
 * xref:adr/adr-015-cartridge-blueprints.adoc[ADR-015 (proposed) — Cartridge blueprints: the open recipe; materialization yields the cartridge]
 * xref:adr/adr-016-quality-metric-for-every-task.adoc[ADR-016 (proposed) — `quality` names its metric: measured quality for every task, not only asr]
+* xref:adr/adr-017-yolo-raw-head-io.adoc[ADR-017 (proposed) — `yolo/v1` cartridges are raw-head tensor functions; decode constants in descriptor `attributes`]
