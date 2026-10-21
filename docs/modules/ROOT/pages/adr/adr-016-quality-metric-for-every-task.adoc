@@ -1,0 +1,47 @@
+= ADR-016 — `quality` names its metric: measured quality for every task, not only asr
+
+*Status:* proposed (2026-10-21). Extends the descriptor only (`quality.metric`, `quality.value`, one more `oneOf`
+branch); no ABI, manifest or threat-model change. Additive: every descriptor valid before stays valid, so
+`spec_version` is unchanged. +
+*Context:* `quality` was designed around speech recognition. Its `oneOf` admits exactly two shapes —
+`wer + dataset + measured_on`, or `unmeasured + harness` — so a cartridge of any other task can only record its
+quality by misusing `wer` or by claiming `unmeasured: true`. Both are false statements in a document whose whole
+point is honest, falsifiable numbers (_Performance and quality are measured on the stated target and reported
+honestly_). A tool-calling NLU cartridge measured on a held-out set (intent accuracy), a detector (mAP), a
+classifier (top-1) all have a measured task metric and nowhere to put it. The blueprint materializer
+(ADR-015) validates the resolved descriptor against this schema, so such a cartridge cannot be materialized at all
+without lying in `quality`.
+
+== Decision
+
+`quality` gains two properties and a third shape:
+
+[cols="1,3"]
+|===
+| `metric` | Name of the task-level metric in `value` — e.g. `intent_accuracy`, `map50_95`, `top1`. Defined by the task
+profile where one exists (ADR-005); open vocabulary otherwise, like `task` itself.
+| `value` | The measured value of `metric` on `dataset`. Ratios are fractions in [0, 1].
+|===
+
+[source,json]
+----
+"oneOf": [
+  { "required": ["wer", "dataset", "measured_on"] },
+  { "required": ["metric", "value", "dataset", "measured_on"] },
+  { "required": ["unmeasured", "harness"] }
+]
+----
+
+`task = asr` keeps its rule unchanged: `quality` is mandatory, and it is a WER or explicitly unmeasured — the
+schema's `then` now also requires `wer` or `unmeasured` inside `quality`, so an asr cartridge cannot answer with a
+different metric. For every other task `quality` stays optional; when present it has one of the three shapes.
+
+== Consequences
+
+* An NLU, detection or classification cartridge states its measured quality truthfully and materializes.
+* `dataset` and `measured_on` are required for a measured metric exactly as for `wer`: a number without the data
+  and the run it came from is not falsifiable. `dataset_digest` and `harness` remain available and recommended.
+* `oneOf` stays exclusive: a descriptor carries one measured metric in this block. Further numbers (per-language,
+  per-argument accuracy) belong in free-form fields next to it — `additionalProperties` is still `true` — or in
+  `flavors` (ADR-014) when they describe another identity.
+* Conformance tooling that hard-coded `wer` for every task should read `metric`/`value` for non-asr tasks.
