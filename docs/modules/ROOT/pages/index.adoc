@@ -278,7 +278,8 @@ io              : input/output tensor or stream contract — not application ter
 target          : hardware + ABI (+ accelerator) the cartridge runs on
 performance     : measured, not promised — rtf, latency, measured_on, methodology (a pointer
                   to the workload/benchmark definition that produced the number)
-quality         : task-level quality, measured — for asr: WER + dataset + harness refs.
+quality         : task-level quality, measured — for asr: WER + dataset + harness refs;
+                  for other tasks: metric + value + dataset (ADR-016).
                   MANDATORY for task: asr. Without it, fallback tolerance (OQ9) and
                   weight-update regression gates are unanswerable.
 attributes      : task-specific — languages, streaming, endpointing (none|signal|semantic),
