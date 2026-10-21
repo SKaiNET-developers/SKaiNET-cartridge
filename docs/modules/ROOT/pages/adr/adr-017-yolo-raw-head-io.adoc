@@ -1,0 +1,43 @@
+= ADR-017 — `yolo/v1` cartridges are raw-head tensor functions; decode constants ride in descriptor `attributes`
+
+*Status:* proposed (2026-10-21, spec v0.4). Worked-case follow-up to ADR-008 (`yolo/v1`) and
+ADR-015 (blueprints); records the OQ10/ADR-004 composition of the first restricted-weights
+cartridge. +
+*Context:* The first `yolo/v1` cartridges now exist: the `detection-yolov8-iree` blueprint
+materializes YOLOv8n packs for `cpu-arm64` and `vulkan-arm64` (IREE), verified against ONNX
+Runtime on the host (eager SKaiNET and compiled, head within rtol/atol 1e-2, identical
+post-NMS detections on a real photo and a synthetic set) and on a Pixel 8a through the public
+profile API (both targets return the same five detections with identical scores; p50 269 ms
+Vulkan / 2205 ms CPU at 640²). Building it forced a boundary question ADR-008 left open:
+which part of a detector is *the cartridge*, and which part is the adapter behind
+`YoloEngine`? The answer had to hold across three backends (eager, llvm-cpu, SPIR-V) whose
+floats differ in the last bits. +
+*Decision:* A `yolo/v1` cartridge's compiled entry point is a pure batch tensor function —
+`float32 [1, 3, S, S]` (RGB, `[0, 1]`, letterboxed) in, the family's *decoded raw head*
+`float32 [1, 4 + C, A]` out: rows 0–3 box center/size in input-canvas pixels (the DFL
+expectation, anchor-point decode and stride scaling run in-graph), the remaining rows
+per-class sigmoid scores. Everything image-shaped and everything that is *policy* stays in
+the profile adapter on the host: letterbox in, class-wise NMS and un-letterboxing out. The
+constants that adapter needs are not host code — they ride in the descriptor's open-vocabulary
+`attributes` as the `yolo/v1` convention: `input_resolution`, `output_layout`,
+`conf_threshold`, `iou_threshold`, `max_detections`, `label_set`. No schema change is needed
+(`attributes` is open by design); this ADR makes the keys normative for the profile so packs
+stay swappable without rebuilding the app. License composition, per ADR-004: MIT blueprint
+code + AGPL-3.0 weights (Ultralytics YOLOv8n, `redistribution: restricted`) compose to an
+effective license of AGPL-3.0 on the materialized pack — the blueprint stays open and
+weight-free, the materializer warns and never accepts obligations on anyone's behalf, and
+whoever ships the pack takes on the AGPL. This is the OQ10 worked case for restricted
+weights. +
+*Consequences:* The cut line is exactly the replaceability plane: raw heads are what backends
+can be held tolerance-equal on (NMS on top of near-ties is not stable across backends, so
+putting it in-graph would make conformance flaky), and one Kotlin adapter serves every
+target. A different input resolution is a different pack (`S` and the anchor count are baked
+into the graph), declared by `attributes.input_resolution`, not probed. Field notes from the
+first host integration, for the conformance tutorial rather than for this decision: a consumer
+that verifies packs must check the manifest *signature*, not just sizes and digests (one
+integration skipped it — the threat model places that check deliberately); index generators
+must not list `descriptor.json` among a pack's `artifacts`; manifest `schema_version` is the
+string `"2"`, not a number. With ADR-016 in the spec, the profile's task-level quality metric
+is `map50_95` (a fraction in `[0, 1]` on a named dataset): a measured `yolo/v1` pack states it
+as `quality.metric` / `quality.value`, and until the blueprint's evaluation harness produces
+it, `unmeasured: true` with the `harness` is the honest answer.
