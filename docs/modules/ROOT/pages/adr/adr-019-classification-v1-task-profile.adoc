@@ -1,0 +1,67 @@
+= ADR-019 — `classification/v1` task profile: logits out; label set and calibration are pack artifacts
+
+*Status:* proposed (2026-11-13, spec v0.4). Descriptor conventions and two pack artifacts; no
+schema, ABI or manifest change. No profile code yet — this records the contract the first
+classification packs are built to, as ADR-017 did for `yolo/v1`. +
+*Context:* `task: "classification"` has been an example value since v0.1, and ADR-016 gave a
+classifier a place for its measured quality (`metric: "top1"`). What a classification cartridge
+*is* was never written down: what its entry point returns, where the class names live, and where
+the numbers live that turn scores into a decision. The first such cartridge makes the questions
+concrete. It is a small head over the rows of a frozen speech encoder; it is trained per
+deployment on that deployment's label set (ADR-018); and it is used to decide whether an
+utterance belongs to a closed set at all — so its decision needs a calibrated temperature and
+accept/reject thresholds, which are fitted to data and are as much part of the model as its
+weights. Putting those in descriptor `attributes`, as `yolo/v1` does with its decode constants,
+would be wrong twice: they are fitted values, not constants of the model family, and a label set
+of a few hundred names does not belong in a descriptor. +
+*Decision:* A `classification/v1` cartridge is declared by `task: "classification"` and
+`attributes.task_profile: "classification/v1"`, and:
+
+* *The entry point is a pure batch tensor function that returns raw logits.* `io.mode` is
+  `batch`; `io.output` is `float32 [null]`, one logit per class, *before* softmax and before any
+  temperature. `io.input` is whatever the family takes — an image, PCM, or the feature rows of
+  another model. Softmax, the temperature, the score and the decision are host-side arithmetic in
+  the profile adapter: they are exact in every backend, they are where policy lives, and keeping
+  them out of the graph keeps packs of different backends tolerance-equal on the logits.
+* *The label set is an artifact:* role `other`, path `artifacts/other/label-set.json`,
+  `{ "labels": ["…", …], "reject_label": "…" }`. The order of `labels` defines the output index;
+  the logit count equals `labels.size`. `reject_label`, when present, names the class trained on
+  out-of-set examples; a prediction of it is never an accepted result. The label set is the
+  model's output vocabulary, as `label_set` is for `yolo/v1` — it names classes, it carries no
+  application command format, and what an application does with a label is not the cartridge's
+  business.
+* *The calibration is an artifact:* role `calibration`, path
+  `artifacts/calibration/calibration.json`, with `temperature` (T > 0), `score` and `thresholds`.
+  `score: "energy"` means E = −T · log Σ exp(z_i / T) over the classes other than `reject_label`;
+  `score: "max_softmax"` means 1 − max softmax(z / T), so that for both a *lower* score is a more
+  confident in-set prediction. `thresholds.accept` and `thresholds.reject` (accept ≤ reject)
+  split the score into three outcomes: at or below `accept`, and not the reject label, the
+  top label is *accepted*; above `reject`, the input is *rejected* as out of set; in between the
+  result is *undecided* and the host falls back to another path. The file also records what the
+  thresholds were fitted for (`target_risk`, the data they were fitted on), so a host can tell
+  what "accepted" was calibrated to mean. A pack without a calibration artifact is a plain
+  classifier: the host takes the top label.
+* *Features from another model are a declared contract.* When `io.input` is the output of
+  another model, `attributes.features` names it: `encoder` (model id and immutable revision),
+  `dim`, `max_rows`, and whatever defines the rows (for a streaming encoder, the window geometry
+  and which stage's rows). A host MUST feed rows produced by exactly that encoder revision under
+  exactly those conditions; rows of another revision, precision class or windowing are a
+  different input distribution, and nothing downstream will report the mismatch. A fixed
+  `max_rows` with a validity mask carried in the input is the profile's way to take variable
+  length through a static-shape graph; the mask's position is part of `attributes.features`.
+* *Quality* is ADR-016's: `metric: "top1"` with `value`, `dataset`, `measured_on`. For a pack
+  with a calibration, `macro_f1`, `ece` and `coverage_at_risk` (the fraction of in-set inputs
+  accepted at the calibration's target risk) belong next to it as free fields.
+
+*Consequences:* A classifier pack is swappable on the same terms as any other: same family and
+`io`, same profile, different labels and thresholds without rebuilding the application, because
+both arrive in the pack and are covered by its manifest digests and signature. Retraining for a
+new label set yields a new pack, not a new descriptor shape. The three-way outcome is the
+profile's contribution over a bare argmax: it is what lets a small on-device classifier be used
+as a router — act locally, fall back, or hand off — with a stated error rate instead of a
+hand-picked confidence cut. The cost is that the decision is only as good as the data the
+calibration was fitted on, which is why the calibration records that data and why ADR-018 makes
+its fit a declared, seeded step. A profile API (`ClassificationEngine`: logits, top label, score,
+outcome) is expected to follow in `cartridge-task-profiles` the way `yolo/v1` did; until it
+exists, blueprints carry the adapter in their own Kotlin API. Per-label thresholds and
+multi-label outputs are out of scope for v1.

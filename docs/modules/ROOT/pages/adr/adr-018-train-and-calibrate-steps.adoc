@@ -1,0 +1,65 @@
+= ADR-018 — `train` and `calibrate` recipe steps: a blueprint may fit parameters to declared data
+
+*Status:* proposed (2026-11-13, spec v0.4). Extends the blueprint only (two more values of
+`steps[].kind`); no descriptor, manifest, ABI or threat-model change. Additive: every blueprint
+valid before stays valid, so `spec_version` is unchanged. Resolves the first half of OQ-B1
+(ADR-015): the step vocabulary is extended by spec revision. +
+*Context:* Every step kind of ADR-015 transforms something that already exists: published
+weights are fetched, converted, quantized, exported, compiled. That covers a recipe whose model
+comes from a publisher. It does not cover a recipe whose point is to *fit* a small model to the
+materializing party's own data — a classifier head on a frozen encoder's features, an adapter, a
+detector's thresholds. Such a recipe can today only declare the fit as `convert`, which the
+vocabulary defines as changing "format or layout" with numerics changing "only by an explicit
+dtype cast", or run it outside the blueprint and take the result as an input. The first misnames
+the one step a license reviewer most needs to see, because it is where a dataset's terms enter
+the artifact. The second loses the lineage: the manifest then records self-declared weights, not
+the data and the recipe they came from. Calibration has the same shape on a smaller scale — a
+temperature or a decision threshold is a number fitted to data, and `measure` (which *reports* on
+finished artifacts) is not the place where artifacts are made. +
+*Decision:* `steps[].kind` gains `train` and `calibrate`. Neither changes what a cartridge is:
+the result is an ordinary pack, and a host cannot tell — and need not know — whether its weights
+were fetched or fitted.
+
+`train` fits model parameters to data. `calibrate` fits decision constants (a temperature,
+thresholds, a normalization) to data without changing model parameters; its products have role
+`calibration`. For both:
+
+* *The data are declared.* Every dataset the step reads is a `source` or an `input` of the
+  blueprint and is named in the step's `uses`. A step MUST NOT read data that the recipe does not
+  declare. Data that only the materializing party has — its own recordings and labels — are
+  declared `inputs` and supplied by the profile, like any other organization-specific content.
+* *The fit is seeded.* `params.seed` is REQUIRED, and hyperparameters that change the result are
+  in `params` or in target `params`, not in code.
+* *Derivation is recorded.* Every output produced from the step's products lists the step's data
+  in `derived_from`, next to the model sources. The effective license (ADR-004) therefore
+  includes the data's terms: a pack trained on a non-commercial dataset carries that license
+  whatever the code and the base weights allow, and a dataset of class `acceptance-required` is
+  gated before download like any other source.
+* *Reproducibility is stated by metric, not by bytes.* The products of these steps are not
+  byte-reproducible across machines, and a blueprint MUST NOT claim that they are (OQ-B2 does not
+  apply to them). A blueprint with a `train` step MUST carry a `verification` entry of kind
+  `task-metric` with a `tolerance`: a materialization is the recipe's result when its measured
+  metric is within the tolerance of the recipe's reference measurement on the same evaluation
+  data.
+* *Quality is measured by the materializing party.* A pack with a trained artifact states
+  `quality` (ADR-016) measured on the artifacts of that materialization, on evaluation data
+  disjoint from the training data, or `unmeasured`. `reference_measurements` are never copied in;
+  for a trained artifact they would describe different weights.
+* *Nothing new touches the network.* Data are fetched by `fetch` steps and verified by digest;
+  `train` and `calibrate` read local files only.
+
+`convert` keeps its meaning: preparing a dataset (decoding, resampling, re-indexing) is a
+`convert`; extracting features with a frozen model is an `export`-class transformation of data,
+not a fit, and is declared as `convert` or `export` with the model in `uses`. +
+*Consequences:* A reviewer reading only `blueprint.json` sees where data shape the artifact,
+which data, under which terms, with which seed. A public blueprint and a private cartridge coexist
+as before: the recipe is open, the dataset and the label set arrive through the profile, and the
+manifest's `provenance.inputs` records them. Materialization gets heavier — it can now include a
+training run on the materializing party's machine — and two parties get slightly different
+weights from the same recipe; the `task-metric` tolerance is what makes that a defined outcome
+instead of a defect. The honesty rule is unchanged and gets one more reason: a trained pack whose
+quality was not measured says so. The same two kinds cover adapters and fine-tuned thresholds
+later without another revision. Reference implementation: the `sk.ainet.cartridge.blueprint`
+plugin accepts the kinds through the schema; the first blueprint using them is a classification
+head on frozen speech-encoder features (ADR-019). Whether backends also need a general extension
+mechanism for step kinds stays open under OQ-B1.
