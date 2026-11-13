@@ -715,7 +715,8 @@ be promoted the same way.
   "I trust my own laptop." v0.4 supplies the other prerequisite: a xref:blueprints.adoc[blueprint]
   pins sources and toolchain, so there is now something well-defined to be deterministic *about*.
 * *OQ12 — Task profiles.* **Resolved (drafted)** by xref:task-profiles.adoc[] / ADR-005 for
-  `asr/v1` and ADR-008 for `yolo/v1` (detection); `embedding` and `tts` remain open.
+  `asr/v1`, ADR-008 for `yolo/v1` (detection) and ADR-019 for `classification/v1`; `embedding` and
+  `tts` remain open.
 * *OQ13 — On-demand delivery failure as a first-class capability?* ADR-009 (platform asset
   delivery) leaves open whether an `on-demand`-timed artifact that never arrives (offline
   device, user declines) deserves descriptor-level vocabulary of its own, or stays a plain

@@ -22,3 +22,5 @@ vanishes from the list.
 * xref:adr/adr-015-cartridge-blueprints.adoc[ADR-015 (proposed) — Cartridge blueprints: the open recipe; materialization yields the cartridge]
 * xref:adr/adr-016-quality-metric-for-every-task.adoc[ADR-016 (proposed) — `quality` names its metric: measured quality for every task, not only asr]
 * xref:adr/adr-017-yolo-raw-head-io.adoc[ADR-017 (proposed) — `yolo/v1` cartridges are raw-head tensor functions; decode constants in descriptor `attributes`]
+* xref:adr/adr-018-train-and-calibrate-steps.adoc[ADR-018 (proposed) — `train` and `calibrate` recipe steps: a blueprint may fit parameters to declared data]
+* xref:adr/adr-019-classification-v1-task-profile.adoc[ADR-019 (proposed) — `classification/v1` task profile: logits out; label set and calibration are pack artifacts]

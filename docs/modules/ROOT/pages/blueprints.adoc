@@ -148,6 +148,11 @@ tell what a recipe does without running it:
 | `export` | Turn a model into a compiler input (StableHLO, ONNX).
 | `compile` | Turn a compiler input into a target artifact.
 | `build-runtime` | Build the native runtime library from the blueprint's source.
+| `train` | Fit model parameters to declared data
+(xref:adr/adr-018-train-and-calibrate-steps.adoc[ADR-018]). The data are sources or inputs named in
+`uses`; `params.seed` is required. The only kind, with `calibrate`, whose products depend on data.
+| `calibrate` | Fit decision constants — a temperature, thresholds — to declared data. Same rules as
+`train`; its products have role `calibration`.
 | `measure` | Produce `performance` / `quality` on the target from the materialized artifacts.
 | `pack` | Assemble the `pack_dir` (xref:adr/adr-012-pack-dir-layout.adoc[ADR-012]) and the manifest.
 | `sign` | Sign the manifest with the materializing party's key.
@@ -323,8 +328,9 @@ cartridge is trusted because of who signed it.
 
 *[drafted]*
 
-* *OQ-B1 — Step vocabulary.* Closed today. Whether backends need an extension mechanism, or new
-  kinds are added by spec revision only.
+* *OQ-B1 — Step vocabulary.* Closed, and extended by spec revision only: the first extension is
+  `train` / `calibrate` (xref:adr/adr-018-train-and-calibrate-steps.adoc[ADR-018]). Whether backends
+  also need an extension mechanism stays open.
 * *OQ-B2 — Expected digests.* The shape of per-target reproducibility claims, once OQ11 allows them.
 * *OQ-B3 — Signed blueprints.* A blueprint is pinned by digest in the profile; whether blueprint
   releases also need publisher signatures, and how that composes with the trust roles of OQ6.
