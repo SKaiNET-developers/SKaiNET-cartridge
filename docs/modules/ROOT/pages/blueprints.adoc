@@ -126,7 +126,8 @@ descriptor_template  : descriptor minus what materialization resolves (see below
 sources[]            : name, role, uri (hf://… | https://…), revision, files[{path, digest}],
                        license, license_url, redistribution
 toolchain{}          : tool name → exact version (+ coordinates or container image)
-targets[]            : id, target{hardware, abi, accelerator}, requirements, params
+targets[]            : id, target{hardware, abi, accelerator}, requirements, params,
+                       descriptor_overrides
 flavors[]            : optional — id, sources[], descriptor_overrides          (ADR-014)
 inputs[]             : name, role, required, schema — supplied by the profile
 steps[]              : id, kind, tool, uses[], produces[], per_target, params  — in order
@@ -208,6 +209,13 @@ A descriptor template leaves out exactly the fields a blueprint cannot know:
 | `performance`, `quality` | *measured* — a `measure` step, or the profile's `measurements`
 | `flavors` | the blueprint flavors the profile selected, each with its own measurements
 |===
+
+A target MAY carry `descriptor_overrides`: descriptor fields that differ for that target, such as
+`attributes.input_resolution` for a variant built at another input size. They are deep-merged over
+the template — objects merge key by key, anything else is replaced — after the target's
+`requirements` and before the profile's own `descriptor_overrides`, which have the last word. This
+differs from a flavor's `descriptor_overrides`, which replace a field in full
+(xref:adr/adr-014-cartridge-flavors.adoc[ADR-014]).
 
 The honesty rule of xref:index.adoc#anatomy[the descriptor] is not relaxed by a build recipe:
 `performance` and `quality` in a materialized descriptor MUST come from a run of *those
